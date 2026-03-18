@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5E8EBC5C2F4FE1B20006A5B3 /* GrainStorageWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 5E8EBC3C2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		5E8EB5E62F4C5C0D0006A5B3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,21 +25,103 @@
 			remoteGlobalIDString = 5E8EB5D32F4C5C090006A5B3;
 			remoteInfo = Tepari;
 		};
+		5E8EBC492F4FE1B20006A5B3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E8EB5CC2F4C5C090006A5B3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E8EBC3B2F4FE1AF0006A5B3;
+			remoteInfo = "GrainStorageWatch Watch App";
+		};
+		5E8EBC532F4FE1B20006A5B3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E8EB5CC2F4C5C090006A5B3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E8EBC3B2F4FE1AF0006A5B3;
+			remoteInfo = "GrainStorageWatch Watch App";
+		};
+		5E8EBC5A2F4FE1B20006A5B3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E8EB5CC2F4C5C090006A5B3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E8EBC3B2F4FE1AF0006A5B3;
+			remoteInfo = "GrainStorageWatch Watch App";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5E8EBC602F4FE1B20006A5B3 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				5E8EBC5C2F4FE1B20006A5B3 /* GrainStorageWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		5E8EB5D42F4C5C090006A5B3 /* Tepari.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tepari.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E8EB5E52F4C5C0D0006A5B3 /* TepariTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TepariTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E8EB5EF2F4C5C0D0006A5B3 /* TepariUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TepariUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E8EBC3C2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GrainStorageWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E8EBC482F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GrainStorageWatch Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E8EBC522F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GrainStorageWatch Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5E5A933C2F514AA40083752E /* Exceptions for "Tepari" folder in "TepariTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Utils/TepariTests/TepariTests.swift,
+			);
+			target = 5E8EB5E42F4C5C0D0006A5B3 /* TepariTests */;
+		};
+		5E5A93422F514AA70083752E /* Exceptions for "Tepari" folder in "TepariUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Utils/TepariUITests/TepariUITests.swift,
+				Utils/TepariUITests/TepariUITestsLaunchTests.swift,
+			);
+			target = 5E8EB5EE2F4C5C0D0006A5B3 /* TepariUITests */;
+		};
+		5E5A93462F514AAD0083752E /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch AppTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Utils/GrainStorageWatch Watch AppTests/GrainStorageWatch_Watch_AppTests.swift",
+			);
+			target = 5E8EBC472F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests */;
+		};
+		5E5A934C2F514AB00083752E /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch AppUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Utils/GrainStorageWatch Watch AppUITests/GrainStorageWatch_Watch_AppUITests.swift",
+				"Utils/GrainStorageWatch Watch AppUITests/GrainStorageWatch_Watch_AppUITestsLaunchTests.swift",
+			);
+			target = 5E8EBC512F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests */;
+		};
 		5E8EB5F72F4C5C0D0006A5B3 /* Exceptions for "Tepari" folder in "Tepari" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				UI/SessionSetup/Session.swift,
+				"Utils/GrainStorageWatch Watch AppTests/GrainStorageWatch_Watch_AppTests.swift",
+				"Utils/GrainStorageWatch Watch AppUITests/GrainStorageWatch_Watch_AppUITests.swift",
+				"Utils/GrainStorageWatch Watch AppUITests/GrainStorageWatch_Watch_AppUITestsLaunchTests.swift",
+				Utils/TepariTests/TepariTests.swift,
+				Utils/TepariUITests/TepariUITests.swift,
+				Utils/TepariUITests/TepariUITestsLaunchTests.swift,
 			);
 			target = 5E8EB5D32F4C5C090006A5B3 /* Tepari */;
+		};
+		5E8EBC762F4FE4810006A5B3 /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Drafting/DraftPosition.swift,
+			);
+			target = 5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -44,18 +130,18 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				5E8EB5F72F4C5C0D0006A5B3 /* Exceptions for "Tepari" folder in "Tepari" target */,
+				5E5A933C2F514AA40083752E /* Exceptions for "Tepari" folder in "TepariTests" target */,
+				5E5A93422F514AA70083752E /* Exceptions for "Tepari" folder in "TepariUITests" target */,
+				5E8EBC762F4FE4810006A5B3 /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch App" target */,
+				5E5A93462F514AAD0083752E /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch AppTests" target */,
+				5E5A934C2F514AB00083752E /* Exceptions for "Tepari" folder in "GrainStorageWatch Watch AppUITests" target */,
 			);
 			path = Tepari;
 			sourceTree = "<group>";
 		};
-		5E8EB5E82F4C5C0D0006A5B3 /* TepariTests */ = {
+		5E8EBC3D2F4FE1AF0006A5B3 /* Tepari Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = TepariTests;
-			sourceTree = "<group>";
-		};
-		5E8EB5F22F4C5C0D0006A5B3 /* TepariUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = TepariUITests;
+			path = "Tepari Watch App";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -82,6 +168,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E8EBC392F4FE1AF0006A5B3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC452F4FE1B20006A5B3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC4F2F4FE1B20006A5B3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -89,8 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				5E8EB5D62F4C5C090006A5B3 /* Tepari */,
-				5E8EB5E82F4C5C0D0006A5B3 /* TepariTests */,
-				5E8EB5F22F4C5C0D0006A5B3 /* TepariUITests */,
+				5E8EBC3D2F4FE1AF0006A5B3 /* Tepari Watch App */,
 				5E8EB5D52F4C5C090006A5B3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +207,9 @@
 				5E8EB5D42F4C5C090006A5B3 /* Tepari.app */,
 				5E8EB5E52F4C5C0D0006A5B3 /* TepariTests.xctest */,
 				5E8EB5EF2F4C5C0D0006A5B3 /* TepariUITests.xctest */,
+				5E8EBC3C2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App.app */,
+				5E8EBC482F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests.xctest */,
+				5E8EBC522F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -115,10 +224,12 @@
 				5E8EB5D02F4C5C090006A5B3 /* Sources */,
 				5E8EB5D12F4C5C090006A5B3 /* Frameworks */,
 				5E8EB5D22F4C5C090006A5B3 /* Resources */,
+				5E8EBC602F4FE1B20006A5B3 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5E8EBC5B2F4FE1B20006A5B3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				5E8EB5D62F4C5C090006A5B3 /* Tepari */,
@@ -143,9 +254,6 @@
 			dependencies = (
 				5E8EB5E72F4C5C0D0006A5B3 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				5E8EB5E82F4C5C0D0006A5B3 /* TepariTests */,
-			);
 			name = TepariTests;
 			packageProductDependencies = (
 			);
@@ -166,14 +274,73 @@
 			dependencies = (
 				5E8EB5F12F4C5C0D0006A5B3 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				5E8EB5F22F4C5C0D0006A5B3 /* TepariUITests */,
-			);
 			name = TepariUITests;
 			packageProductDependencies = (
 			);
 			productName = TepariUITests;
 			productReference = 5E8EB5EF2F4C5C0D0006A5B3 /* TepariUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E8EBC5D2F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch App" */;
+			buildPhases = (
+				5E8EBC382F4FE1AF0006A5B3 /* Sources */,
+				5E8EBC392F4FE1AF0006A5B3 /* Frameworks */,
+				5E8EBC3A2F4FE1AF0006A5B3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E8EBC3D2F4FE1AF0006A5B3 /* Tepari Watch App */,
+			);
+			name = "GrainStorageWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "GrainStorageWatch Watch App";
+			productReference = 5E8EBC3C2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5E8EBC472F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E8EBC612F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch AppTests" */;
+			buildPhases = (
+				5E8EBC442F4FE1B20006A5B3 /* Sources */,
+				5E8EBC452F4FE1B20006A5B3 /* Frameworks */,
+				5E8EBC462F4FE1B20006A5B3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E8EBC4A2F4FE1B20006A5B3 /* PBXTargetDependency */,
+			);
+			name = "GrainStorageWatch Watch AppTests";
+			packageProductDependencies = (
+			);
+			productName = "GrainStorageWatch Watch AppTests";
+			productReference = 5E8EBC482F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5E8EBC512F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E8EBC642F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch AppUITests" */;
+			buildPhases = (
+				5E8EBC4E2F4FE1B20006A5B3 /* Sources */,
+				5E8EBC4F2F4FE1B20006A5B3 /* Frameworks */,
+				5E8EBC502F4FE1B20006A5B3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E8EBC542F4FE1B20006A5B3 /* PBXTargetDependency */,
+			);
+			name = "GrainStorageWatch Watch AppUITests";
+			packageProductDependencies = (
+			);
+			productName = "GrainStorageWatch Watch AppUITests";
+			productReference = 5E8EBC522F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -184,7 +351,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					5E8EB5D32F4C5C090006A5B3 = {
 						CreatedOnToolsVersion = 26.2;
@@ -196,6 +363,17 @@
 					5E8EB5EE2F4C5C0D0006A5B3 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 5E8EB5D32F4C5C090006A5B3;
+					};
+					5E8EBC3B2F4FE1AF0006A5B3 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					5E8EBC472F4FE1B20006A5B3 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 5E8EBC3B2F4FE1AF0006A5B3;
+					};
+					5E8EBC512F4FE1B20006A5B3 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 5E8EBC3B2F4FE1AF0006A5B3;
 					};
 				};
 			};
@@ -216,6 +394,9 @@
 				5E8EB5D32F4C5C090006A5B3 /* Tepari */,
 				5E8EB5E42F4C5C0D0006A5B3 /* TepariTests */,
 				5E8EB5EE2F4C5C0D0006A5B3 /* TepariUITests */,
+				5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */,
+				5E8EBC472F4FE1B20006A5B3 /* GrainStorageWatch Watch AppTests */,
+				5E8EBC512F4FE1B20006A5B3 /* GrainStorageWatch Watch AppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -236,6 +417,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5E8EB5ED2F4C5C0D0006A5B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC3A2F4FE1AF0006A5B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC462F4FE1B20006A5B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC502F4FE1B20006A5B3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -266,6 +468,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E8EBC382F4FE1AF0006A5B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC442F4FE1B20006A5B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E8EBC4E2F4FE1B20006A5B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -279,6 +502,21 @@
 			target = 5E8EB5D32F4C5C090006A5B3 /* Tepari */;
 			targetProxy = 5E8EB5F02F4C5C0D0006A5B3 /* PBXContainerItemProxy */;
 		};
+		5E8EBC4A2F4FE1B20006A5B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */;
+			targetProxy = 5E8EBC492F4FE1B20006A5B3 /* PBXContainerItemProxy */;
+		};
+		5E8EBC542F4FE1B20006A5B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */;
+			targetProxy = 5E8EBC532F4FE1B20006A5B3 /* PBXContainerItemProxy */;
+		};
+		5E8EBC5B2F4FE1B20006A5B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E8EBC3B2F4FE1AF0006A5B3 /* GrainStorageWatch Watch App */;
+			targetProxy = 5E8EBC5A2F4FE1B20006A5B3 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -288,12 +526,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Tepari/Tepari.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UX6Z4ZY692;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Tepari/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Tepari Connects to EID stick reader to scan animakl tags.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Tepari uses Bluetooth to connect to external devices like panel readers.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Used to test staple length measurement";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Need to Control draft relays over local Wi_Fi (ESP32)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -306,6 +549,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = GP.Tepari;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -322,12 +566,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Tepari/Tepari.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UX6Z4ZY692;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Tepari/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Tepari Connects to EID stick reader to scan animakl tags.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Tepari uses Bluetooth to connect to external devices like panel readers.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Used to test staple length measurement";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Need to Control draft relays over local Wi_Fi (ESP32)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -340,6 +589,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = GP.Tepari;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -409,6 +659,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -466,6 +717,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -555,6 +807,162 @@
 			};
 			name = Release;
 		};
+		5E8EBC5E2F4FE1B20006A5B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = GrainStorageWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = GP.Tepari;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = GP.Tepari.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		5E8EBC5F2F4FE1B20006A5B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = GrainStorageWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = GP.Tepari;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = GP.Tepari.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		5E8EBC622F4FE1B20006A5B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.greenwoodpark.Grainstorage.GrainStorageWatch-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GrainStorageWatch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GrainStorageWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		5E8EBC632F4FE1B20006A5B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.greenwoodpark.Grainstorage.GrainStorageWatch-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GrainStorageWatch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GrainStorageWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		5E8EBC652F4FE1B20006A5B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.greenwoodpark.Grainstorage.GrainStorageWatch-Watch-AppUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "GrainStorageWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		5E8EBC662F4FE1B20006A5B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UX6Z4ZY692;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.greenwoodpark.Grainstorage.GrainStorageWatch-Watch-AppUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "GrainStorageWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -590,6 +998,33 @@
 			buildConfigurations = (
 				5E8EB6012F4C5C0D0006A5B3 /* Debug */,
 				5E8EB6022F4C5C0D0006A5B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E8EBC5D2F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E8EBC5E2F4FE1B20006A5B3 /* Debug */,
+				5E8EBC5F2F4FE1B20006A5B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E8EBC612F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E8EBC622F4FE1B20006A5B3 /* Debug */,
+				5E8EBC632F4FE1B20006A5B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E8EBC642F4FE1B20006A5B3 /* Build configuration list for PBXNativeTarget "GrainStorageWatch Watch AppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E8EBC652F4FE1B20006A5B3 /* Debug */,
+				5E8EBC662F4FE1B20006A5B3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
