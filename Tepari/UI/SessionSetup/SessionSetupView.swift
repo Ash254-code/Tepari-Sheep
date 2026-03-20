@@ -13,7 +13,8 @@ struct SessionSetupView: View {
     @EnvironmentObject private var store: LocalDataStore
     @EnvironmentObject private var sessionCoordinator: ActiveSessionCoordinator
     @EnvironmentObject private var presetStore: TreatmentPresetStore
-
+    @EnvironmentObject private var settings: AppSettings
+    
     let sessionID: UUID
     var onDone: (() -> Void)? = nil
 
@@ -1052,6 +1053,8 @@ private extension SessionSetupView {
         syncSelectedTreatmentsToStore()
 
         sessionCoordinator.setSessionTypes(selectedTypes, for: sessionID)
+
+        AudioManager.shared.playTrigger(.sessionStart, settings: settings)
 
         onDone?()
         dismiss()

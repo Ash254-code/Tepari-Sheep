@@ -13,8 +13,8 @@ struct SessionControlDock: View {
                 state: model.treat,
                 titleOverride: treatTitleOverride,
                 accessibilityHint: model.treat.enabled
-                    ? "Shows treatments configured for this session."
-                    : "No treatments configured for this session."
+                    ? "Primary session action."
+                    : "Primary session action unavailable."
             ) {
                 model.onTreat()
             }
@@ -25,8 +25,8 @@ struct SessionControlDock: View {
                 state: model.undo,
                 titleOverride: undoTitleOverride,
                 accessibilityHint: model.undo.enabled
-                    ? "Record the current scale weight again for the most recently scanned animal."
-                    : "ReWeigh is not available."
+                    ? "Secondary session action."
+                    : "Secondary session action unavailable."
             ) {
                 model.onUndo()
             }
@@ -76,12 +76,14 @@ struct SessionControlDock: View {
         action: @escaping () -> Void
     ) -> some View {
         let displayedTitle = titleOverride ?? state.title
+        let isInteractable = state.enabled && !state.isLoading
 
         Button(action: action) {
             VStack(spacing: 8) {
                 if state.isLoading {
                     ProgressView()
                         .controlSize(.large)
+                        .tint(state.isActive ? .white : .blue)
                 } else {
                     Image(systemName: state.systemImage)
                         .font(.system(size: 28, weight: .semibold))
@@ -93,16 +95,30 @@ struct SessionControlDock: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
+            .foregroundStyle(state.isActive ? .white : .primary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(state.isActive ? Color.blue.opacity(0.96) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(
+                        state.isActive ? Color.blue.opacity(0.98) : Color.clear,
+                        lineWidth: state.isActive ? 1 : 0
+                    )
+            )
+            .padding(.horizontal, 6)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!state.enabled || state.isLoading)
-        .opacity((state.enabled && !state.isLoading) ? 1.0 : 0.35)
-        .padding(.vertical, 6)
+        .disabled(!isInteractable)
+        .opacity(isInteractable ? 1.0 : 0.35)
         .accessibilityLabel(Text(displayedTitle))
         .accessibilityHint(Text(accessibilityHint))
-        .modifier(EnabledPressFeedback(enabled: state.enabled && !state.isLoading))
+        .modifier(EnabledPressFeedback(enabled: isInteractable))
     }
 }
 

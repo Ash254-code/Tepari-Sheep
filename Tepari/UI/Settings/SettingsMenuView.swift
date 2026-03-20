@@ -3,8 +3,10 @@ import UIKit
 
 private let kEnableStapleMeasureKey = "enable_staple_measure"
 
-/// ✅ Legacy Settings screen.
-/// Routes to the new Settings hub screen.
+// =====================================================
+// MARK: - Legacy Settings screen
+// =====================================================
+
 struct LegacySettingsView: View {
     var body: some View {
         SettingsMenuView()
@@ -13,17 +15,13 @@ struct LegacySettingsView: View {
 
 struct SettingsMenuView: View {
 
-    // ✅ For connectivity pills in the NAV BAR (keeps Back button correct)
     @EnvironmentObject private var transport: TransportManager
     @EnvironmentObject private var racewell: RacewellManager
     @EnvironmentObject private var stickReader: StickReaderManager
 
-    // ✅ iPad needs a NavigationStack or NavigationLinks won’t navigate (often appear “dead”)
     private var needsOwnNavigationStack: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
     }
-
-    // MARK: - Connection states for pills
 
     private var handlerState: ConnectionState {
         transport.method == .demo ? .connected : transport.state
@@ -44,7 +42,6 @@ struct SettingsMenuView: View {
                         )
                 }
             } else {
-                // iPhone: usually already inside a NavigationStack from the tab/root
                 content
                     .applyNavBarPills(
                         handlerState: handlerState,
@@ -58,142 +55,239 @@ struct SettingsMenuView: View {
     private var content: some View {
         ZStack {
             GlassBackground()
-                .allowsHitTesting(false)
 
-            List {
+            ScrollView {
+                VStack(spacing: 14) {
+                    headerCard
 
-                // =====================================================
-                // CONNECTIVITY (TOP CARD)
-                // =====================================================
-                Section("Connectivity") {
-                    NavigationLink {
-                        ConnectivityView()
-                    } label: {
-                        SettingsRow(
-                            title: "⚡ Connectivity",
-                            subtitle: "T1, Racewell and stick reader setup"
-                        )
+                    settingsSection(
+                        title: "Connectivity",
+                        subtitle: "Connections and device setup"
+                    ) {
+                        NavigationLink {
+                            ConnectivityView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "bolt.horizontal.circle.fill",
+                                iconTint: .blue,
+                                title: "Connectivity",
+                                subtitle: "T1, Racewell and stick reader setup"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
+
+                    settingsSection(
+                        title: "Data",
+                        subtitle: "Animal records, imports and history"
+                    ) {
+                        NavigationLink {
+                            CSVToolsView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "square.and.arrow.down.on.square.fill",
+                                iconTint: .green,
+                                title: "CSV Import / Export",
+                                subtitle: "Import and export animal lists"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            AnimalDataView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "doc.text.fill",
+                                iconTint: .orange,
+                                title: "Animal Data",
+                                subtitle: "Traits, profiles and drafting fields"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            TraitsQuickPicksSettingsView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "slider.horizontal.3",
+                                iconTint: .purple,
+                                title: "Traits",
+                                subtitle: "Edit micron, staple and custom quick picks"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            SessionListView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "clock.arrow.circlepath",
+                                iconTint: .cyan,
+                                title: "History",
+                                subtitle: "Past sessions and saved weights"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    settingsSection(
+                        title: "Operations",
+                        subtitle: "Reusable setup data and livestock workflow"
+                    ) {
+                        NavigationLink {
+                            FarmSetupView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "building.2.crop.circle.fill",
+                                iconTint: .green,
+                                title: "Farms",
+                                subtitle: "Add and manage farms and yards (PIC)"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            MobSetupViewEntry()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "hare.fill",
+                                iconTint: .teal,
+                                title: "Mobs",
+                                subtitle: "Manage mobs and import CSV animals"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            ProgrammedTagsEntry()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "tag.fill",
+                                iconTint: .pink,
+                                title: "Programmed Tags",
+                                subtitle: "Assign a tag a default sex"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            TreatmentPresetsView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "cross.case.fill",
+                                iconTint: .red,
+                                title: "Treatment Presets",
+                                subtitle: "Create reusable treatments for session setup"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            AnimalClassesView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "square.text.square.fill",
+                                iconTint: .indigo,
+                                title: "Animal Classes",
+                                subtitle: "Create reusable classes for session setup"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    settingsSection(
+                        title: "App",
+                        subtitle: "Behaviour, haptics, audio and tools"
+                    ) {
+                        NavigationLink {
+                            AppSettingsView()
+                        } label: {
+                            ModernSettingsRow(
+                                icon: "gearshape.fill",
+                                iconTint: .gray,
+                                title: "Settings",
+                                subtitle: "Haptics, audio and app behaviour"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Spacer(minLength: 10)
                 }
-
-                // =====================================================
-                // Data
-                // =====================================================
-                Section("Data") {
-
-                    NavigationLink {
-                        CSVToolsView()
-                    } label: {
-                        SettingsRow(
-                            title: "🧾 CSV Import / Export",
-                            subtitle: "Import and export animal lists"
-                        )
-                    }
-
-                    NavigationLink {
-                        AnimalDataView()
-                    } label: {
-                        SettingsRow(
-                            title: "📄 Animal Data",
-                            subtitle: "Traits, profiles and drafting fields"
-                        )
-                    }
-
-                    NavigationLink {
-                        TraitsQuickPicksSettingsView()
-                    } label: {
-                        SettingsRow(
-                            title: "📈 Traits",
-                            subtitle: "Edit quick add chips (micron + staple)"
-                        )
-                    }
-
-                    NavigationLink {
-                        SessionListView()
-                    } label: {
-                        SettingsRow(
-                            title: "🕒 History",
-                            subtitle: "Past sessions and saved weights"
-                        )
-                    }
-                }
-
-                // =====================================================
-                // Operations
-                // =====================================================
-                Section("Operations") {
-
-                    NavigationLink {
-                        FarmSetupView()
-                    } label: {
-                        SettingsRow(
-                            title: "🚜 Farms",
-                            subtitle: "Add and manage farms and yards (PIC)"
-                        )
-                    }
-
-                    NavigationLink {
-                        MobSetupViewEntry()
-                    } label: {
-                        SettingsRow(
-                            title: "🐑 Mobs",
-                            subtitle: "Manage mobs and import CSV animals"
-                        )
-                    }
-
-                    NavigationLink {
-                        ProgrammedTagsEntry()
-                    } label: {
-                        SettingsRow(
-                            title: "🏷️ Programmed Tags",
-                            subtitle: "Assign a tag a default sex (Ewe/Wether/Ram)"
-                        )
-                    }
-
-                    NavigationLink {
-                        TreatmentPresetsView()
-                    } label: {
-                        SettingsRow(
-                            title: "💉 Treatment Presets",
-                            subtitle: "Create reusable treatments for session setup"
-                        )
-                    }
-
-                    NavigationLink {
-                        AnimalClassesView()
-                    } label: {
-                        SettingsRow(
-                            title: "🏷️ Animal Classes",
-                            subtitle: "Create reusable animal classes for session setup"
-                        )
-                    }
-                }
-
-                // =====================================================
-                // Settings
-                // =====================================================
-                Section("Settings") {
-
-                    NavigationLink {
-                        AppSettingsView()
-                    } label: {
-                        SettingsRow(
-                            title: "⚙️ Settings",
-                            subtitle: "Haptics, audio and app behaviour"
-                        )
-                    }
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .safeAreaPadding(.bottom, 12)
+                .padding(.bottom, 24)
             }
-            .scrollContentBackground(.hidden)
-            .listStyle(.insetGrouped)
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private var headerCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Settings")
+                    .font(.title3.weight(.bold))
+
+                Text("Manage connectivity, data, classes, treatments and app behaviour.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    settingsBadge("Connectivity")
+                    settingsBadge("Data")
+                    settingsBadge("Operations")
+                    settingsBadge("App")
+                }
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func settingsSection<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 4)
+
+            GlassCard {
+                VStack(spacing: 0) {
+                    content()
+                }
+            }
+        }
+    }
+
+    private func settingsBadge(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+    }
 }
 
 // =====================================================
-// MARK: - Nav bar pills helper (keeps code DRY)
+// MARK: - Nav bar pills helper
 // =====================================================
 
 private extension View {
@@ -202,7 +296,6 @@ private extension View {
         draftState: ConnectionState,
         stickState: ConnectionState
     ) -> some View {
-
         self.modifier(
             NavBarConnectivityPillsModifier(
                 handlerState: handlerState,
@@ -257,9 +350,53 @@ private struct NavBarConnectivityPillsModifier: ViewModifier {
     }
 }
 
-//
-// MARK: - Treatment Presets (REAL)
-//
+// =====================================================
+// MARK: - Modern Settings Row
+// =====================================================
+
+private struct ModernSettingsRow: View {
+
+    let icon: String
+    let iconTint: Color
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(iconTint.opacity(0.14))
+                    .frame(width: 42, height: 42)
+
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(iconTint)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+}
+
+// =====================================================
+// MARK: - Treatment Presets
+// =====================================================
 
 private struct TreatmentPresetsView: View {
 
@@ -269,74 +406,131 @@ private struct TreatmentPresetsView: View {
     @State private var editing: TreatmentPresetStore.TreatmentPreset?
 
     var body: some View {
-        List {
-            if presetStore.presets.isEmpty {
-                ContentUnavailableView(
-                    "No Treatment Presets",
-                    systemImage: "cross.case.fill",
-                    description: Text("Add presets here so they appear during New Session setup.")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(presetStore.presets) { p in
-                    Button {
-                        editing = p
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(p.name)
-                                .font(.headline)
+        ZStack {
+            GlassBackground()
 
-                            HStack(spacing: 10) {
-                                if let amt = p.doseAmount?.trimmingCharacters(in: .whitespacesAndNewlines),
-                                   !amt.isEmpty {
+            ScrollView {
+                VStack(spacing: 14) {
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Treatment Presets")
+                                        .font(.title3.weight(.bold))
 
-                                    let unit = p.doseUnit ?? .mL
-                                    let basis = p.doseBasis ?? .perAnimal
-
-                                    switch basis {
-                                    case .perAnimal:
-                                        Text("Dose: \(amt) \(unit.rawValue)")
-                                    case .perBodyWeight:
-                                        let per = (p.dosePerKg ?? "10").trimmingCharacters(in: .whitespacesAndNewlines)
-                                        let perClean = per.isEmpty ? "10" : per
-                                        Text("Dose: \(amt) \(unit.rawValue) / \(perClean)kg")
-                                    }
+                                    Text("Reusable treatments for session setup.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
                                 }
 
-                                if let days = p.defaultWithholdingDays {
-                                    Text("Withholding: \(days)d")
+                                Spacer()
+
+                                Button {
+                                    showAdd = true
+                                } label: {
+                                    Label("Add Preset", systemImage: "plus")
                                 }
+                                .glassButton(.compact, tint: .blue)
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+
+                    if presetStore.presets.isEmpty {
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("No Treatment Presets")
+                                    .font(.headline)
+
+                                Text("Add presets here so they appear during New Session setup.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(presetStore.presets) { p in
+                                presetRow(p)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 10)
                 }
-                .onDelete { indexSet in
-                    let items = indexSet.map { presetStore.presets[$0] }
-                    items.forEach { presetStore.delete($0) }
-                }
+                .padding(.horizontal, 16)
+                .safeAreaPadding(.bottom, 12)
+                .padding(.bottom, 24)
             }
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Treatment Presets")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            Button {
-                showAdd = true
-            } label: {
-                Image(systemName: "plus")
-            }
-        }
         .sheet(isPresented: $showAdd) {
             TreatmentPresetEditor()
         }
         .sheet(item: $editing) { preset in
             TreatmentPresetEditor(existing: preset)
+        }
+    }
+
+    private func presetRow(_ p: TreatmentPresetStore.TreatmentPreset) -> some View {
+        Button {
+            editing = p
+        } label: {
+            GlassCard {
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.red.opacity(0.14))
+                            .frame(width: 42, height: 42)
+
+                        Image(systemName: "cross.case.fill")
+                            .foregroundStyle(.red)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(p.name)
+                            .font(.headline)
+
+                        HStack(spacing: 8) {
+                            if let amt = p.doseAmount?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               !amt.isEmpty {
+
+                                let unit = p.doseUnit ?? .mL
+                                let basis = p.doseBasis ?? .perAnimal
+
+                                switch basis {
+                                case .perAnimal:
+                                    metaPill("Dose: \(amt) \(unit.rawValue)")
+                                case .perBodyWeight:
+                                    let per = (p.dosePerKg ?? "10").trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let perClean = per.isEmpty ? "10" : per
+                                    metaPill("Dose: \(amt) \(unit.rawValue) / \(perClean)kg")
+                                }
+                            }
+
+                            if let days = p.defaultWithholdingDays {
+                                metaPill("Withholding: \(days)d")
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                presetStore.delete(p)
+            } label: {
+                Label("Delete Preset", systemImage: "trash")
+            }
         }
     }
 }
@@ -487,9 +681,9 @@ private struct TreatmentPresetEditor: View {
     }
 }
 
-//
-// MARK: - Animal Classes (REAL)
-//
+// =====================================================
+// MARK: - Animal Classes
+// =====================================================
 
 private struct AnimalClassesView: View {
 
@@ -499,61 +693,119 @@ private struct AnimalClassesView: View {
     @State private var editing: AnimalClassStore.AnimalClass?
 
     var body: some View {
-        List {
-            if classStore.classes.isEmpty {
-                ContentUnavailableView(
-                    "No Animal Classes",
-                    systemImage: "tag.fill",
-                    description: Text("Add classes here so they appear during New Session setup.")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(classStore.classes) { c in
-                    Button {
-                        editing = c
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(c.name)
-                                .font(.headline)
+        ZStack {
+            GlassBackground()
 
-                            if let sex = c.defaultSex, !sex.isEmpty {
-                                Text("Default: \(sex)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else if let notes = c.notes, !notes.isEmpty {
-                                Text(notes)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+            ScrollView {
+                VStack(spacing: 14) {
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Animal Classes")
+                                        .font(.title3.weight(.bold))
+
+                                    Text("Reusable classes that appear during New Session setup.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button {
+                                    showAdd = true
+                                } label: {
+                                    Label("Add Class", systemImage: "plus")
+                                }
+                                .glassButton(.compact, tint: .blue)
                             }
                         }
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+
+                    if classStore.classes.isEmpty {
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("No Animal Classes")
+                                    .font(.headline)
+
+                                Text("Add classes here so they appear during New Session setup.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(classStore.classes) { c in
+                                classRow(c)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 10)
                 }
-                .onDelete { indexSet in
-                    let items = indexSet.map { classStore.classes[$0] }
-                    items.forEach { classStore.delete($0) }
-                }
+                .padding(.horizontal, 16)
+                .safeAreaPadding(.bottom, 12)
+                .padding(.bottom, 24)
             }
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Animal Classes")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            Button {
-                showAdd = true
-            } label: {
-                Image(systemName: "plus")
-            }
-        }
         .sheet(isPresented: $showAdd) {
             AnimalClassEditor()
         }
         .sheet(item: $editing) { item in
             AnimalClassEditor(existing: item)
+        }
+    }
+
+    private func classRow(_ c: AnimalClassStore.AnimalClass) -> some View {
+        Button {
+            editing = c
+        } label: {
+            GlassCard {
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.indigo.opacity(0.14))
+                            .frame(width: 42, height: 42)
+
+                        Image(systemName: "square.text.square.fill")
+                            .foregroundStyle(.indigo)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(c.name)
+                            .font(.headline)
+
+                        HStack(spacing: 8) {
+                            if let sex = c.defaultSex, !sex.isEmpty {
+                                metaPill("Default: \(sex)")
+                            }
+
+                            if let notes = c.notes, !notes.isEmpty {
+                                metaPill(notes)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                classStore.delete(c)
+            } label: {
+                Label("Delete Class", systemImage: "trash")
+            }
         }
     }
 }
@@ -635,9 +887,9 @@ private struct AnimalClassEditor: View {
     }
 }
 
-//
-// MARK: - App Settings screen
-//
+// =====================================================
+// MARK: - App Settings
+// =====================================================
 
 private struct AppSettingsView: View {
 
@@ -645,83 +897,139 @@ private struct AppSettingsView: View {
     @AppStorage(kEnableStapleMeasureKey) private var enableStapleMeasure = false
 
     var body: some View {
-        List {
-            Section("Haptics") {
+        ZStack {
+            GlassBackground()
 
-                Toggle("Haptic Feedback", isOn: $settings.hapticsEnabled)
+            ScrollView {
+                VStack(spacing: 14) {
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("App Settings")
+                                .font(.title3.weight(.bold))
 
-                Picker("Strength", selection: $settings.hapticStrength) {
-                    ForEach(AppSettings.HapticStrength.allCases, id: \.self) { s in
-                        Text(s.label).tag(s)
+                            Text("Control feedback, audio and experimental tools.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    .padding(.top, 6)
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Haptics")
+                                .font(.headline)
+
+                            Toggle("Haptic Feedback", isOn: $settings.hapticsEnabled)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Strength")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Strength", selection: $settings.hapticStrength) {
+                                    ForEach(AppSettings.HapticStrength.allCases, id: \.self) { s in
+                                        Text(s.label).tag(s)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .disabled(!settings.hapticsEnabled)
+                                .opacity(settings.hapticsEnabled ? 1 : 0.45)
+                            }
+
+                            Text("Tip: set to Heavy if you’re using gloves at the yards.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Audio")
+                                .font(.headline)
+
+                            NavigationLink {
+                                AudioSetupView()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color.green.opacity(0.14))
+                                            .frame(width: 42, height: 42)
+
+                                        Image(systemName: "speaker.wave.2.fill")
+                                            .foregroundStyle(.green)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Audio Setup")
+                                            .font(.headline)
+
+                                        Text("Sounds, alerts and volume")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Experimental")
+                                .font(.headline)
+
+                            Toggle("Staple Length Tool", isOn: $enableStapleMeasure)
+
+                            Text("Shows the temporary ruler button on the Session screen.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer(minLength: 10)
                 }
-                .disabled(!settings.hapticsEnabled)
-
-                Text("Tip: set to Heavy if you’re using gloves at the yards.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Audio") {
-                NavigationLink {
-                    AudioSetupView()
-                } label: {
-                    SettingsRow(
-                        title: "🔊 Audio Setup",
-                        subtitle: "Sounds, alerts and volume"
-                    )
-                }
-            }
-
-            Section("Experimental") {
-                Toggle("Staple Length Tool", isOn: $enableStapleMeasure)
-
-                Text("Shows the temporary ruler button on the Session screen.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .safeAreaPadding(.bottom, 12)
+                .padding(.bottom, 24)
             }
         }
-        .scrollContentBackground(.hidden)
-        .navigationTitle("⚙️ Settings")
+        .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-//
-// MARK: - Row UI
-//
+// =====================================================
+// MARK: - Shared pill
+// =====================================================
 
-private struct SettingsRow: View {
-
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
+private func metaPill(_ text: String) -> some View {
+    Text(text)
+        .font(.caption.weight(.semibold))
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
 }
 
-//
-// MARK: - Programmed Tags entry (farm picker)
-//
+// =====================================================
+// MARK: - Programmed Tags entry
+// =====================================================
 
 private struct ProgrammedTagsEntry: View {
 
@@ -752,9 +1060,9 @@ private struct ProgrammedTagsEntry: View {
     }
 }
 
-//
+// =====================================================
 // MARK: - Mob setup entry
-//
+// =====================================================
 
 private struct MobSetupViewEntry: View {
     var body: some View {
@@ -764,28 +1072,61 @@ private struct MobSetupViewEntry: View {
     }
 }
 
+// =====================================================
+// MARK: - Farm Picker
+// =====================================================
+
 private struct FarmPickerSimple: View {
 
     let farms: [LocalDataStore.Farm]
     let onPick: (UUID) -> Void
 
     var body: some View {
-        List(farms) { farm in
-            Button {
-                onPick(farm.id)
-            } label: {
-                VStack(alignment: .leading) {
-                    Text(farm.name)
-                    Text("PIC: \(farm.pic)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        ZStack {
+            GlassBackground()
+
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(farms) { farm in
+                        Button {
+                            onPick(farm.id)
+                        } label: {
+                            GlassCard {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color.green.opacity(0.14))
+                                            .frame(width: 42, height: 42)
+
+                                        Image(systemName: "building.2.crop.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(farm.name)
+                                            .font(.headline)
+
+                                        Text("PIC: \(farm.pic)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .buttonStyle(.plain)
         }
-        .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
     }
 }

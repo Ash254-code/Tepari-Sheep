@@ -117,6 +117,20 @@ enum DraftWifiController {
         sendRequest(path: "/STATUS", label: "WiFi STATUS")
     }
 
+    // -------------------------------------------------
+    // MARK: - Pause Relay
+    // -------------------------------------------------
+
+    private static let pauseRelayGate = 7
+
+    static func setPauseRelay(paused: Bool) {
+        if paused {
+            holdGate(pauseRelayGate)
+        } else {
+            releaseGate(pauseRelayGate)
+        }
+    }
+
     private static func sendRequest(path: String, label: String) {
         let trimmed = currentBaseURL()
 

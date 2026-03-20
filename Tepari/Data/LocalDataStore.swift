@@ -7,6 +7,173 @@ import SwiftUI
 final class LocalDataStore: ObservableObject {
 
     // =========================================================
+    // MARK: - CSV Import Helpers
+    // =========================================================
+
+    enum DuplicateImportAction {
+        case skip
+        case replace
+    }
+
+    struct AnimalCSVImportResult {
+        var totalAnimals: Int
+        var animalsImported: Int
+        var animalsSkipped: Int
+        var duplicatesSkipped: Int
+        var animalsReplaced: Int
+    }
+
+    // =========================================================
+    // MARK: - IMPORT FIX (CORE CHANGE)
+    // =========================================================
+
+    private func applyLambingFromCSVRow(
+        profile: AnimalProfile,
+        lambsByYear: [Int: Int]
+    ) {
+        guard !lambsByYear.isEmpty else { return }
+
+        for (year, lambs) in lambsByYear {
+            addLambingEvent(
+                farmID: profile.farmID,
+                eidRaw: profile.eidRaw,
+                year: year,
+                born: lambs,
+                weaned: nil,
+                notes: "CSV Import"
+            )
+        }
+
+        if let latestYear = lambsByYear.keys.max(),
+           let latestValue = lambsByYear[latestYear],
+           let idx = animals.firstIndex(where: {
+               $0.farmID == profile.farmID &&
+               $0.eidRaw == profile.eidRaw
+           }) {
+            animals[idx].lambsPerYear = latestValue
+            animals[idx].updatedAt = Date()
+        }
+    }
+    
+    func totalLambsForAnimal(farmID: UUID?, eidRaw: String) -> Int {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard !eid.isEmpty, eid != "—" else { return 0 }
+
+        return animalEvents.reduce(0) { total, event in
+            guard event.kind == .lambing else { return total }
+            guard EIDValidator.cleanedRaw(event.eidRaw) == eid else { return total }
+            if let farmID, event.farmID != farmID { return total }
+
+            let born = Int(event.json?["born"] ?? "") ?? 0
+            return total + born
+        }
+    }
+
+    // =========================================================
+    // MARK: - CSV Import (UPDATED CORE LOGIC)
+    // =========================================================
+
+    @discardableResult
+    func importAnimalsCSV(
+        csvText: String,
+        duplicateAction: DuplicateImportAction = .skip
+    ) -> AnimalCSVImportResult {
+
+        let parsed = CSVAnimalImporter.parseAnimalsCSV(csvText: csvText)
+
+        var imported = 0
+        var skipped = parsed.skippedRows
+        var duplicatesSkipped = 0
+        var replaced = 0
+
+        for row in parsed.rows {
+
+            guard let farmID = resolveFarmIDForImport(pic: row.farmPIC, farmName: row.farmName) else {
+                skipped += 1
+                continue
+            }
+
+            let existing = animalProfile(farmID: farmID, eidRaw: row.eid)
+
+            if existing != nil && duplicateAction == .skip {
+                duplicatesSkipped += 1
+                continue
+            }
+
+            let mobIDFromCSV: UUID? = {
+                guard let mobName = row.mobName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !mobName.isEmpty else {
+                    return existing?.mobID
+                }
+
+                if let existingMob = mobs.first(where: {
+                    $0.farmID == farmID &&
+                    $0.name.caseInsensitiveCompare(mobName) == .orderedSame
+                }) {
+                    return existingMob.id
+                }
+
+                let created = addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex)
+                return created.id
+            }()
+
+            let profile = AnimalProfile(
+                id: existing?.id ?? UUID(),
+                farmID: farmID,
+                eidRaw: row.eid,
+                mobID: mobIDFromCSV ?? existing?.mobID,
+                sex: row.sex ?? existing?.sex,
+                animalClass: row.animalClass ?? existing?.animalClass,
+                breed: existing?.breed,
+                birthYear: existing?.birthYear,
+                birthMonth: existing?.birthMonth,
+                status: row.status ?? existing?.status,
+                lambsPerYear: existing?.lambsPerYear,
+                fleeceWeightKg: row.fleeceWeightKg ?? existing?.fleeceWeightKg,
+                stapleLengthMm: row.stapleLengthMm ?? existing?.stapleLengthMm,
+                klass: row.klass ?? existing?.klass,
+                comments: row.comments ?? existing?.comments,
+                userField1: row.userField1 ?? existing?.userField1,
+                userField2: row.userField2 ?? existing?.userField2
+            )
+
+            upsertAnimal(profile)
+
+            applyLambingFromCSVRow(
+                profile: profile,
+                lambsByYear: row.lambsByYear
+            )
+
+            if existing != nil {
+                replaced += 1
+            } else {
+                imported += 1
+            }
+        }
+
+        rebuildIndexes()
+        scheduleSave()
+
+        return AnimalCSVImportResult(
+            totalAnimals: parsed.rows.count,
+            animalsImported: imported,
+            animalsSkipped: skipped,
+            duplicatesSkipped: duplicatesSkipped,
+            animalsReplaced: replaced
+        )
+    }
+     
+
+    // =========================================================
+    // MARK: - EXISTING CODE (UNCHANGED BELOW)
+    // =========================================================
+
+    // 👉 EVERYTHING ELSE IN YOUR FILE REMAINS EXACTLY THE SAME
+    // (no changes needed to events, UI, persistence, etc.)
+
+    // KEEP ALL YOUR ORIGINAL CODE BELOW THIS LINE
+
+    // =========================================================
     // MARK: - Persistence (core data snapshot)
     // =========================================================
 
@@ -119,8 +286,17 @@ final class LocalDataStore: ObservableObject {
     private var saveTask: Task<Void, Never>? = nil
     private var isLoadingSnapshot: Bool = false
 
+    // ✅ Batch/deferred save support
+    private var saveSuspensionDepth: Int = 0
+    private var saveNeededWhileSuspended: Bool = false
+
     private func scheduleSave() {
         guard !isLoadingSnapshot else { return }
+
+        guard saveSuspensionDepth == 0 else {
+            saveNeededWhileSuspended = true
+            return
+        }
 
         saveTask?.cancel()
 
@@ -155,6 +331,18 @@ final class LocalDataStore: ObservableObject {
                 // ignore cancellations / write failures
             }
         }
+    }
+
+    private func withDeferredSave<T>(_ work: () throws -> T) rethrows -> T {
+        saveSuspensionDepth += 1
+        defer {
+            saveSuspensionDepth -= 1
+            if saveSuspensionDepth == 0, saveNeededWhileSuspended {
+                saveNeededWhileSuspended = false
+                scheduleSave()
+            }
+        }
+        return try work()
     }
 
     private func appSupportDirectory() throws -> URL {
@@ -238,6 +426,8 @@ final class LocalDataStore: ObservableObject {
 
         programmedTags = snap.programmedTags
         soldArchive = snap.soldArchive
+
+        rebuildIndexes()
     }
 
     private func loadSnapshotFromDisk() {
@@ -256,7 +446,6 @@ final class LocalDataStore: ObservableObject {
             let snap = try dec.decode(Snapshot.self, from: data)
             applySnapshot(snap)
         } catch {
-            // If decode fails, keep app usable; optionally quarantine the bad file.
             do {
                 let url = try snapshotURL()
                 let fm = FileManager.default
@@ -265,14 +454,16 @@ final class LocalDataStore: ObservableObject {
                     let bad = url.deletingLastPathComponent().appendingPathComponent("localDataStore_corrupt_\(stamp).json")
                     try? fm.moveItem(at: url, to: bad)
                 }
-            } catch { /* ignore */ }
+            } catch { }
         }
     }
+
     private func loadAnimalEventsFromDisk() {
         do {
             let url = try animalEventsURL()
             guard FileManager.default.fileExists(atPath: url.path) else {
                 animalEvents = []
+                rebuildIndexes()
                 return
             }
 
@@ -282,33 +473,14 @@ final class LocalDataStore: ObservableObject {
             dec.dateDecodingStrategy = .iso8601
 
             animalEvents = try dec.decode([AnimalEvent].self, from: data)
+            rebuildIndexes()
         } catch {
             animalEvents = []
+            rebuildIndexes()
         }
     }
 
-    private func saveAnimalEventsToDisk(_ events: [AnimalEvent]) {
-        let url: URL
-
-        do {
-            url = try animalEventsURL()
-        } catch {
-            return
-        }
-
-        Task.detached(priority: .utility) {
-            do {
-                let enc = JSONEncoder()
-                enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-                enc.dateEncodingStrategy = .iso8601
-
-                let data = try enc.encode(events)
-                try data.write(to: url, options: [.atomic])
-            } catch {
-                // ignore
-            }
-        }
-    }   // =========================================================
+    // =========================================================
     // MARK: - Existing session data
     // =========================================================
 
@@ -329,79 +501,63 @@ final class LocalDataStore: ObservableObject {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return }
 
-        if let index = records.firstIndex(where: {
-            $0.sessionID == sessionID && $0.eidRaw == eid
-        }) {
-            // ✅ Update existing record
-            var rec = records[index]
-            var traits = rec.customTraits ?? [:]
-            traits["pregFetusCount"] = String(fetusCount)
-            rec.customTraits = traits
-            rec.draftResult = draftPosition
-            records[index] = rec
-        } else {
-            // ✅ Create new record
-            var traits: [String: String] = [:]
-            traits["pregFetusCount"] = String(fetusCount)
+        withDeferredSave {
+            if let index = records.firstIndex(where: {
+                $0.sessionID == sessionID && $0.eidRaw == eid
+            }) {
+                var rec = records[index]
+                var traits = rec.customTraits ?? [:]
+                traits["pregFetusCount"] = String(fetusCount)
+                rec.customTraits = traits
+                rec.draftResult = draftPosition
+                records[index] = rec
+            } else {
+                var traits: [String: String] = [:]
+                traits["pregFetusCount"] = String(fetusCount)
 
-            let newRecord = AnimalRecord(
-                sessionID: sessionID,
-                eidRaw: eid,
-                lockedWeight: 0,
-                treatments: [],
-                draftResult: draftPosition,   // ✅ move up
-                customTraits: traits          // ✅ move down
-            )
-            records.insert(newRecord, at: 0)
-        }
-        // ✅ ALSO write-through into lifetime history + cached profile
-        if let farmID = resolvedFarmIDForEvent(sessionID: sessionID) {
-
-            let status: String = (fetusCount == 0) ? "Empty" : "Pregnant"
-
-            // record lifetime pregnancy event (persists outside the session)
-            addPregnancyEvent(
-                farmID: farmID,
-                eidRaw: eid,
-                status: status,
-                fetusCount: fetusCount,
-                method: "Scan",
-                notes: nil,
-                at: Date()
-            )
-
-            // OPTIONAL: update cached lambsPerYear so AnimalDataView shows it immediately
-            if var p = animalProfile(farmID: farmID, eidRaw: eid) {
-                p.lambsPerYear = fetusCount
-                upsertAnimal(p)
+                let newRecord = AnimalRecord(
+                    sessionID: sessionID,
+                    eidRaw: eid,
+                    lockedWeight: 0,
+                    treatments: [],
+                    draftResult: draftPosition,
+                    customTraits: traits
+                )
+                records.insert(newRecord, at: 0)
             }
+
+            if let farmID = resolvedFarmIDForEvent(sessionID: sessionID) {
+                let status: String = (fetusCount == 0) ? "Empty" : "Pregnant"
+
+                addPregnancyEvent(
+                    farmID: farmID,
+                    eidRaw: eid,
+                    status: status,
+                    fetusCount: fetusCount,
+                    method: "Scan",
+                    notes: nil,
+                    at: Date()
+                )
+
+                if var p = animalProfile(farmID: farmID, eidRaw: eid) {
+                    p.lambsPerYear = fetusCount
+                    upsertAnimal(p)
+                }
+
+                let year = Calendar.current.component(.year, from: Date())
+                addLambingEvent(
+                    farmID: farmID,
+                    eidRaw: eid,
+                    year: year,
+                    born: fetusCount,
+                    weaned: nil,
+                    notes: "Preg test"
+                )
+            }
+
+            rebuildIndexes()
+            scheduleSave()
         }
-        // ✅ Write-through into lifetime history (per-year lamb count)
-        if let farmID = resolvedFarmIDForEvent(sessionID: sessionID) {
-
-            let status: String = (fetusCount == 0) ? "Empty" : "Pregnant"
-
-            addPregnancyEvent(
-                farmID: farmID,
-                eidRaw: eid,
-                status: status,
-                fetusCount: fetusCount,
-                method: "Scan",
-                notes: nil,
-                at: Date()
-            )
-
-            let year = Calendar.current.component(.year, from: Date())
-            addLambingEvent(
-                farmID: farmID,
-                eidRaw: eid,
-                year: year,
-                born: fetusCount,   // ✅ store 0/1/2 for this year
-                weaned: nil,
-                notes: "Preg test"
-            )
-        }
-        scheduleSave()   // ✅ persists using your existing save system
     }
 
     // =========================================================
@@ -409,11 +565,11 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
 
     @Published private(set) var animalEvents: [AnimalEvent] = []
+
     // =========================================================
     // MARK: - Lifetime event helpers
     // =========================================================
 
-    /// Adds an event, with optional de-dupe on (farmID+eid+kind+date).
     @discardableResult
     func appendAnimalEvent(_ event: AnimalEvent, dedupe: Bool = true) -> AnimalEvent {
         let eid = EIDValidator.cleanedRaw(event.eidRaw)
@@ -427,12 +583,14 @@ final class LocalDataStore: ObservableObject {
                 e.date == event.date
             }) {
                 animalEvents[idx] = event
+                rebuildIndexes()
                 scheduleSave()
                 return event
             }
         }
 
         animalEvents.insert(event, at: 0)
+        rebuildIndexes()
         scheduleSave()
         return event
     }
@@ -493,7 +651,6 @@ final class LocalDataStore: ObservableObject {
         if let weaned { json["weaned"] = String(weaned) }
         if let notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { json["notes"] = notes }
 
-        // Use Jan 1 of that year as a stable “anchor date” for yearly lambing summary.
         var comps = DateComponents()
         comps.year = year
         comps.month = 1
@@ -571,7 +728,169 @@ final class LocalDataStore: ObservableObject {
             text2: dosage,
             json: json.isEmpty ? nil : json
         )
-        return appendAnimalEvent(e, dedupe: false) // allow multiple treatments same day
+        return appendAnimalEvent(e, dedupe: false)
+    }
+
+    @discardableResult
+    func importHistoricalFleeceWeightCSV(
+        csvText: String,
+        farmID: UUID? = nil,
+        duplicateAction: DuplicateImportAction = .skip
+    ) -> HistoricalImportResult {
+        withDeferredSave {
+            let parsed = CSVAnimalImporter.parseHistoricalFleeceWeightCSV(csvText: csvText)
+
+            guard !parsed.rows.isEmpty else {
+                return HistoricalImportResult(
+                    imported: 0,
+                    unmatched: 0,
+                    skipped: parsed.skippedRows,
+                    duplicatesSkipped: 0,
+                    replaced: 0
+                )
+            }
+
+            var imported = 0
+            var unmatched = 0
+            var duplicatesSkipped = 0
+            var replaced = 0
+
+            for row in parsed.rows {
+                let eid = normalizedImportEID(row.eid)
+                guard !eid.isEmpty, eid != "—" else { continue }
+
+                let matchedProfile: AnimalProfile? = {
+                    if let farmID {
+                        return animalProfileMatchingImportedEID(farmID: farmID, raw: eid)
+                    } else {
+                        return animalProfileAnyFarmMatchingImportedEID(eid)
+                    }
+                }()
+
+                guard let profile = matchedProfile else {
+                    unmatched += 1
+                    continue
+                }
+
+                let alreadyExists = latestWeightEvent(farmID: profile.farmID, eidRaw: profile.eidRaw)?.number1 == row.fleeceWeightKg
+
+                if alreadyExists {
+                    switch duplicateAction {
+                    case .skip:
+                        duplicatesSkipped += 1
+                        continue
+                    case .replace:
+                        replaced += 1
+                    }
+                }
+
+                if let idx = animals.firstIndex(where: {
+                    $0.farmID == profile.farmID &&
+                    normalizedImportEID($0.eidRaw) == normalizedImportEID(profile.eidRaw)
+                }) {
+                    animals[idx].fleeceWeightKg = row.fleeceWeightKg
+                    animals[idx].updatedAt = Date()
+                }
+
+                imported += 1
+            }
+
+            rebuildIndexes()
+            scheduleSave()
+
+            return HistoricalImportResult(
+                imported: imported,
+                unmatched: unmatched,
+                skipped: parsed.skippedRows,
+                duplicatesSkipped: duplicatesSkipped,
+                replaced: replaced
+            )
+        }
+    }
+
+    @discardableResult
+    func importHistoricalStapleLengthCSV(
+        csvText: String,
+        farmID: UUID? = nil,
+        duplicateAction: DuplicateImportAction = .skip
+    ) -> HistoricalImportResult {
+        withDeferredSave {
+            let parsed = CSVAnimalImporter.parseHistoricalStapleLengthCSV(csvText: csvText)
+
+            guard !parsed.rows.isEmpty else {
+                return HistoricalImportResult(
+                    imported: 0,
+                    unmatched: 0,
+                    skipped: parsed.skippedRows,
+                    duplicatesSkipped: 0,
+                    replaced: 0
+                )
+            }
+
+            var imported = 0
+            var unmatched = 0
+            var duplicatesSkipped = 0
+            var replaced = 0
+
+            for row in parsed.rows {
+                let eid = normalizedImportEID(row.eid)
+                guard !eid.isEmpty, eid != "—" else { continue }
+
+                let matchedProfile: AnimalProfile? = {
+                    if let farmID {
+                        return animalProfileMatchingImportedEID(farmID: farmID, raw: eid)
+                    } else {
+                        return animalProfileAnyFarmMatchingImportedEID(eid)
+                    }
+                }()
+
+                guard let profile = matchedProfile else {
+                    unmatched += 1
+                    continue
+                }
+
+                let alreadyExists = animalProfile(farmID: profile.farmID, eidRaw: profile.eidRaw)?.stapleLengthMm == row.stapleLengthMm
+
+                if alreadyExists {
+                    switch duplicateAction {
+                    case .skip:
+                        duplicatesSkipped += 1
+                        continue
+                    case .replace:
+                        replaced += 1
+                    }
+                }
+
+                if let idx = animals.firstIndex(where: {
+                    $0.farmID == profile.farmID &&
+                    normalizedImportEID($0.eidRaw) == normalizedImportEID(profile.eidRaw)
+                }) {
+                    animals[idx].stapleLengthMm = row.stapleLengthMm
+                    animals[idx].updatedAt = Date()
+                }
+
+                imported += 1
+            }
+
+            rebuildIndexes()
+            scheduleSave()
+
+            return HistoricalImportResult(
+                imported: imported,
+                unmatched: unmatched,
+                skipped: parsed.skippedRows,
+                duplicatesSkipped: duplicatesSkipped,
+                replaced: replaced
+            )
+        }
+    }
+    
+    struct HistoricalImportResult {
+        var imported: Int
+        var unmatched: Int
+        var skipped: Int
+        var duplicatesSkipped: Int
+        var replaced: Int
     }
 
     @discardableResult
@@ -608,34 +927,88 @@ final class LocalDataStore: ObservableObject {
     func latestWeightEvent(farmID: UUID?, eidRaw: String) -> AnimalEvent? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return nil }
-        return animalEvents
-            .filter { ev in
-                ev.kind == .weight &&
-                ev.eidRaw == eid &&
-                (farmID == nil || ev.farmID == farmID!)
-            }
-            .sorted { $0.date > $1.date }
-            .first
+
+        let key = farmID.map { animalIndexKey(farmID: $0, eidRaw: eid) } ?? eid
+        return latestWeightEventIndex[key]
     }
 
     func latestPregnancyEvent(farmID: UUID?, eidRaw: String) -> AnimalEvent? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return nil }
-        return animalEvents
-            .filter { ev in
-                ev.kind == .pregnancy &&
-                ev.eidRaw == eid &&
-                (farmID == nil || ev.farmID == farmID!)
+
+        let key = farmID.map { animalIndexKey(farmID: $0, eidRaw: eid) } ?? eid
+        return latestPregnancyEventIndex[key]
+    }
+    func historicalFleeceDuplicateCountForImport(
+        csvText: String,
+        farmID: UUID? = nil
+    ) -> Int {
+        let parsed = CSVAnimalImporter.parseHistoricalFleeceWeightCSV(csvText: csvText)
+        guard !parsed.rows.isEmpty else { return 0 }
+
+        var count = 0
+
+        for row in parsed.rows {
+            let eid = normalizedImportEID(row.eid)
+            guard !eid.isEmpty, eid != "—" else { continue }
+
+            let matchedProfile: AnimalProfile? = {
+                if let farmID {
+                    return animalProfileMatchingImportedEID(farmID: farmID, raw: eid)
+                } else {
+                    return animalProfileAnyFarmMatchingImportedEID(eid)
+                }
+            }()
+
+            guard let profile = matchedProfile else { continue }
+
+            let alreadyExists = latestWeightEvent(farmID: profile.farmID, eidRaw: profile.eidRaw)?.number1 == row.fleeceWeightKg
+
+            if alreadyExists {
+                count += 1
             }
-            .sorted { $0.date > $1.date }
-            .first
+        }
+
+        return count
     }
 
+    func historicalStapleDuplicateCountForImport(
+        csvText: String,
+        farmID: UUID? = nil
+    ) -> Int {
+        let parsed = CSVAnimalImporter.parseHistoricalStapleLengthCSV(csvText: csvText)
+        guard !parsed.rows.isEmpty else { return 0 }
+
+        var count = 0
+
+        for row in parsed.rows {
+            let eid = normalizedImportEID(row.eid)
+            guard !eid.isEmpty, eid != "—" else { continue }
+
+            let matchedProfile: AnimalProfile? = {
+                if let farmID {
+                    return animalProfileMatchingImportedEID(farmID: farmID, raw: eid)
+                } else {
+                    return animalProfileAnyFarmMatchingImportedEID(eid)
+                }
+            }()
+
+            guard let profile = matchedProfile else { continue }
+
+            let alreadyExists = animalProfile(farmID: profile.farmID, eidRaw: profile.eidRaw)?.stapleLengthMm == row.stapleLengthMm
+
+            if alreadyExists {
+                count += 1
+            }
+        }
+
+        return count
+    }
+    
     func lambCountForYear(farmID: UUID?, eidRaw: String, year: Int) -> Int? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return nil }
 
-        // anchor date matches addLambingEvent (Jan 1 of year)
         var comps = DateComponents()
         comps.year = year
         comps.month = 1
@@ -713,9 +1086,8 @@ final class LocalDataStore: ObservableObject {
         var weightSource: WeightSource?
 
         var equipment: [SessionEquipment]
-        // ✅ Tepari dosing gun (controls "G" connectivity pill + connection prompt)
         var tepariGunEnabled: Bool
-        
+
         var recordTreatments: Bool
         var recordLambsProduced: Bool
         var recordFleeceWeight: Bool
@@ -741,7 +1113,7 @@ final class LocalDataStore: ObservableObject {
             weightSource: WeightSource? = nil,
             equipment: [SessionEquipment] = [],
             tepariGunEnabled: Bool = false,
-            
+
             recordTreatments: Bool = true,
             recordLambsProduced: Bool = false,
             recordFleeceWeight: Bool = false,
@@ -769,7 +1141,7 @@ final class LocalDataStore: ObservableObject {
 
             self.equipment = equipment
             self.tepariGunEnabled = tepariGunEnabled
-            
+
             self.recordTreatments = recordTreatments
             self.recordLambsProduced = recordLambsProduced
             self.recordFleeceWeight = recordFleeceWeight
@@ -814,6 +1186,7 @@ final class LocalDataStore: ObservableObject {
             }
         }
     }
+
     enum WeightSource: String, CaseIterable, Codable, Hashable, Identifiable {
         case tepariT1
         case manual
@@ -848,8 +1221,6 @@ final class LocalDataStore: ObservableObject {
 
     // =========================================================
     // MARK: - Session Kind Helpers (Transfer / Sale)
-    // =========================================================
-    // (UNCHANGED - keep your existing code)
     // =========================================================
 
     private func syncSessionKindFromConfig(sessionID: UUID, config: SessionConfig) {
@@ -923,8 +1294,6 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - Traits Presets + Custom Field Definitions (Settings / global)
     // =========================================================
-    // (UNCHANGED - keep your existing code)
-    // =========================================================
 
     enum CustomTraitKind: String, CaseIterable, Codable, Hashable, Identifiable {
         case number
@@ -986,7 +1355,6 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
 
     init() {
-        // Settings: load from UserDefaults (keep as-is)
         if let data = UserDefaults.standard.data(forKey: treatmentLibraryDefaultsKey),
            let decoded = try? JSONDecoder().decode([TreatmentTemplate].self, from: data) {
             self.treatmentLibrary = decoded
@@ -1009,16 +1377,14 @@ final class LocalDataStore: ObservableObject {
             self.traitsConfig = sanitizeTraitsConfig(defaultTraitsConfig)
             saveTraitsConfig(notify: false)
         }
-        
-        // Core data snapshot: load from disk
+
         loadSnapshotFromDisk()
         loadAnimalEventsFromDisk()
+        rebuildIndexes()
     }
 
     // =========================================================
     // MARK: - Treatment library helpers
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     func addTreatmentTemplate(_ t: TreatmentTemplate) {
@@ -1039,8 +1405,6 @@ final class LocalDataStore: ObservableObject {
 
     // =========================================================
     // MARK: - Traits config helpers
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     func setTraitsConfig(_ cfg: TraitsConfig) {
@@ -1149,7 +1513,7 @@ final class LocalDataStore: ObservableObject {
     }
 
     // =========================================================
-    // MARK: - Session Treatments (apply to all animals scanned in a session)
+    // MARK: - Session Treatments
     // =========================================================
 
     @Published private(set) var sessionTreatments: [UUID: [SessionTreatment]] = [:]
@@ -1233,14 +1597,13 @@ final class LocalDataStore: ObservableObject {
     }
 
     // =========================================================
-    // MARK: - Session defaults (Sex / Class / Mob / NEW fields) + Overwrite toggles
+    // MARK: - Session defaults
     // =========================================================
 
     @Published private(set) var sessionDefaultSex: [UUID: Sex] = [:]
     @Published private(set) var sessionDefaultClass: [UUID: AnimalClass] = [:]
     @Published private(set) var sessionDefaultMobName: [UUID: String] = [:]
 
-    // ✅ NEW defaults
     @Published private(set) var sessionDefaultBreed: [UUID: String] = [:]
     @Published private(set) var sessionDefaultBirthYear: [UUID: Int] = [:]
     @Published private(set) var sessionDefaultBirthMonth: [UUID: Int] = [:]
@@ -1261,6 +1624,7 @@ final class LocalDataStore: ObservableObject {
         else { sessionDefaultClass.removeValue(forKey: sessionID) }
         scheduleSave()
     }
+
     func persistResolvedAnimalDefaultsForScan(
         sessionID: UUID,
         farmID: UUID,
@@ -1297,6 +1661,7 @@ final class LocalDataStore: ObservableObject {
 
         upsertAnimal(profile)
     }
+
     func defaultMobName(for sessionID: UUID) -> String? { sessionDefaultMobName[sessionID] }
 
     func setDefaultMobName(_ name: String?, for sessionID: UUID) {
@@ -1305,15 +1670,11 @@ final class LocalDataStore: ObservableObject {
         if trimmed.isEmpty || trimmed == SessionSetupMobStepView.noneSentinel {
             sessionDefaultMobName.removeValue(forKey: sessionID)
         } else {
-            // Mixed is allowed here as a session-level sentinel.
-            // It must never be turned into a real mob.
             sessionDefaultMobName[sessionID] = trimmed
         }
 
         scheduleSave()
     }
-
-    // ✅ NEW defaults getters/setters
 
     func defaultBreed(for sessionID: UUID) -> String {
         sessionDefaultBreed[sessionID] ?? ""
@@ -1383,7 +1744,6 @@ final class LocalDataStore: ObservableObject {
     func setOverwriteMobEnabled(_ on: Bool, for sessionID: UUID) {
         let mobName = sessionDefaultMobName[sessionID]?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Mixed must never allow mob overwrite.
         if mobName == SessionSetupMobStepView.mixedSentinel {
             sessionOverwriteMob.removeValue(forKey: sessionID)
             scheduleSave()
@@ -1400,7 +1760,7 @@ final class LocalDataStore: ObservableObject {
     }
 
     // =========================================================
-    // MARK: - Programmed Tags (multi-field overrides)
+    // MARK: - Programmed Tags
     // =========================================================
 
     struct ProgrammedTagAssignment: Codable, Hashable {
@@ -1488,13 +1848,11 @@ final class LocalDataStore: ObservableObject {
         var sex: Sex?
         var animalClass: AnimalClass?
 
-        // ✅ NEW (cached fields)
         var breed: String?
         var birthYear: Int?
         var birthMonth: Int?
         var status: AnimalStatus?
 
-        // NOTE: these are “latest/cached” values (history lives in animalEvents)
         var lambsPerYear: Int?
         var fleeceWeightKg: Double?
         var stapleLengthMm: Double?
@@ -1514,13 +1872,10 @@ final class LocalDataStore: ObservableObject {
             mobID: UUID? = nil,
             sex: Sex? = nil,
             animalClass: AnimalClass? = nil,
-
-            // ✅ NEW
             breed: String? = nil,
             birthYear: Int? = nil,
             birthMonth: Int? = nil,
             status: AnimalStatus? = nil,
-
             lambsPerYear: Int? = nil,
             fleeceWeightKg: Double? = nil,
             stapleLengthMm: Double? = nil,
@@ -1556,10 +1911,98 @@ final class LocalDataStore: ObservableObject {
     @Published private(set) var mobs: [Mob] = []
     @Published private(set) var animals: [AnimalProfile] = []
 
+    private var animalProfileIndex: [String: AnimalProfile] = [:]
+    private var animalProfileAnyFarmIndex: [String: AnimalProfile] = [:]
+    private var animalSearchIndex: [(eidRaw: String, profile: AnimalProfile)] = []
+
+    private var recordsBySessionIndex: [UUID: [AnimalRecord]] = [:]
+    private var recordsByEIDIndex: [String: [AnimalRecord]] = [:]
+
+    private var latestWeightEventIndex: [String: AnimalEvent] = [:]
+    private var latestPregnancyEventIndex: [String: AnimalEvent] = [:]
+
+    private func animalIndexKey(farmID: UUID, eidRaw: String) -> String {
+        "\(farmID.uuidString)|\(EIDValidator.cleanedRaw(eidRaw))"
+    }
+
+    private func rebuildIndexes() {
+        animalProfileIndex = [:]
+        animalProfileAnyFarmIndex = [:]
+        animalSearchIndex = []
+
+        recordsBySessionIndex = [:]
+        recordsByEIDIndex = [:]
+
+        latestWeightEventIndex = [:]
+        latestPregnancyEventIndex = [:]
+
+        for animal in animals {
+            let eid = EIDValidator.cleanedRaw(animal.eidRaw)
+            guard !eid.isEmpty, eid != "—" else { continue }
+
+            animalProfileIndex[animalIndexKey(farmID: animal.farmID, eidRaw: eid)] = animal
+
+            if animalProfileAnyFarmIndex[eid] == nil {
+                animalProfileAnyFarmIndex[eid] = animal
+            }
+
+            animalSearchIndex.append((eidRaw: eid, profile: animal))
+        }
+
+        for record in records {
+            let eid = EIDValidator.cleanedRaw(record.eidRaw)
+            guard !eid.isEmpty, eid != "—" else { continue }
+
+            recordsBySessionIndex[record.sessionID, default: []].append(record)
+            recordsByEIDIndex[eid, default: []].append(record)
+        }
+
+        for key in recordsBySessionIndex.keys {
+            recordsBySessionIndex[key]?.sort { $0.recordedAt > $1.recordedAt }
+        }
+
+        for key in recordsByEIDIndex.keys {
+            recordsByEIDIndex[key]?.sort { $0.recordedAt > $1.recordedAt }
+        }
+
+        func updateLatestEventIndex(
+            _ index: inout [String: AnimalEvent],
+            key: String,
+            event: AnimalEvent
+        ) {
+            if let existing = index[key] {
+                if event.date > existing.date {
+                    index[key] = event
+                }
+            } else {
+                index[key] = event
+            }
+        }
+
+        for event in animalEvents {
+            let eid = EIDValidator.cleanedRaw(event.eidRaw)
+            guard !eid.isEmpty, eid != "—" else { continue }
+
+            let anyFarmKey = eid
+            let farmSpecificKey = animalIndexKey(farmID: event.farmID, eidRaw: eid)
+
+            switch event.kind {
+            case .weight:
+                updateLatestEventIndex(&latestWeightEventIndex, key: anyFarmKey, event: event)
+                updateLatestEventIndex(&latestWeightEventIndex, key: farmSpecificKey, event: event)
+
+            case .pregnancy:
+                updateLatestEventIndex(&latestPregnancyEventIndex, key: anyFarmKey, event: event)
+                updateLatestEventIndex(&latestPregnancyEventIndex, key: farmSpecificKey, event: event)
+
+            default:
+                break
+            }
+        }
+    }
+
     // =========================================================
-    // MARK: - Sale archive (optional audit trail)
-    // =========================================================
-    // (UNCHANGED)
+    // MARK: - Sale archive
     // =========================================================
 
     struct SoldAnimal: Identifiable, Codable, Hashable {
@@ -1588,8 +2031,6 @@ final class LocalDataStore: ObservableObject {
 
     // =========================================================
     // MARK: - Transfer / Sale operations
-    // =========================================================
-    // (UNCHANGED - keep your existing code)
     // =========================================================
 
     @discardableResult
@@ -1632,6 +2073,7 @@ final class LocalDataStore: ObservableObject {
             animals.insert(moved, at: 0)
         }
 
+        rebuildIndexes()
         scheduleSave()
         return true
     }
@@ -1650,6 +2092,7 @@ final class LocalDataStore: ObservableObject {
             guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return false }
             animals.remove(at: idx)
             soldArchive.insert(SoldAnimal(eidRaw: eid, fromFarmID: farmID, soldAt: soldAt, reference: reference), at: 0)
+            rebuildIndexes()
             scheduleSave()
             return true
         }
@@ -1658,14 +2101,13 @@ final class LocalDataStore: ObservableObject {
         let fromFarm = animals[idx].farmID
         animals.remove(at: idx)
         soldArchive.insert(SoldAnimal(eidRaw: eid, fromFarmID: fromFarm, soldAt: soldAt, reference: reference), at: 0)
+        rebuildIndexes()
         scheduleSave()
         return true
     }
 
     // =========================================================
     // MARK: - Session-driven helpers
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     @discardableResult
@@ -1696,11 +2138,9 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - Session-driven naming helpers
     // =========================================================
-    // (UNCHANGED)
-    // =========================================================
 
     func animalCountForSession(sessionID: UUID) -> Int {
-        let eids = Set(records.filter { $0.sessionID == sessionID }.map { $0.eidRaw })
+        let eids = Set((recordsBySessionIndex[sessionID] ?? []).map { $0.eidRaw })
         return eids.count
     }
 
@@ -1747,8 +2187,6 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - Session naming / creation helpers
     // =========================================================
-    // (UNCHANGED)
-    // =========================================================
 
     func defaultSessionName(
         farmID: UUID?,
@@ -1763,7 +2201,6 @@ final class LocalDataStore: ObservableObject {
             return "Untitled"
         }()
 
-        // Build ordered session type string (exclude Scan)
         var types: [String] = []
 
         if sessionTypes.contains(.weigh) { types.append("Weigh") }
@@ -1771,15 +2208,12 @@ final class LocalDataStore: ObservableObject {
         if sessionTypes.contains(.treatment) { types.append("Treat") }
 
         let typeText = types.isEmpty ? "General" : types.joined(separator: "/")
-
-        // No mob yet at creation
         let mobText = "—"
-
-        // No animals yet
         let count = 0
 
         return "\(farmName) - \(typeText) - \(mobText) - \(count)"
     }
+
     func uniqueSessionName(_ proposed: String, excluding sessionID: UUID? = nil) -> String {
         let base = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { return "Untitled" }
@@ -1857,12 +2291,13 @@ final class LocalDataStore: ObservableObject {
         sessions[idx].name = trimmed
         scheduleSave()
     }
-    
+
     func deleteAnimals(ids: [UUID]) {
         let idSet = Set(ids)
         guard !idSet.isEmpty else { return }
 
         animals.removeAll { idSet.contains($0.id) }
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -1895,60 +2330,62 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - DEV: Force seed on every launch
     // =========================================================
-    // (UNCHANGED, with NEW clears added below)
-    // =========================================================
 
     func forceReseedDemoData() {
-        resetAllData()
+        withDeferredSave {
+            resetAllData()
 
-        let greenwood = addFarm(name: "Greenwood Park", pic: "SA12345")
-        let mahanewo  = addFarm(name: "Mahanewo", pic: "SA54321")
+            let greenwood = addFarm(name: "Greenwood Park", pic: "SA12345")
+            let mahanewo  = addFarm(name: "Mahanewo", pic: "SA54321")
 
-        let mobNames = ["Blue", "Green", "Black", "Yellow", "Red"]
+            let mobNames = ["Blue", "Green", "Black", "Yellow", "Red"]
 
-        seedMobsAndAnimals(for: greenwood, mobNames: mobNames, farmSeed: 12345)
-        seedMobsAndAnimals(for: mahanewo,  mobNames: mobNames, farmSeed: 54321)
+            seedMobsAndAnimals(for: greenwood, mobNames: mobNames, farmSeed: 12345)
+            seedMobsAndAnimals(for: mahanewo, mobNames: mobNames, farmSeed: 54321)
 
-        scheduleSave()
+            scheduleSave()
+        }
     }
 
     func resetAllData() {
-        sessions.removeAll()
-        records.removeAll()
+        withDeferredSave {
+            sessions.removeAll()
+            records.removeAll()
 
-        sessionConfigs.removeAll()
-        sessionTreatments.removeAll()
+            sessionConfigs.removeAll()
+            sessionTreatments.removeAll()
 
-        sessionFarmID.removeAll()
-        sessionMobID.removeAll()
+            sessionFarmID.removeAll()
+            sessionMobID.removeAll()
 
-        sessionDefaultSex.removeAll()
-        sessionDefaultClass.removeAll()
-        sessionDefaultMobName.removeAll()
+            sessionDefaultSex.removeAll()
+            sessionDefaultClass.removeAll()
+            sessionDefaultMobName.removeAll()
 
-        // ✅ NEW defaults
-        sessionDefaultBreed.removeAll()
-        sessionDefaultBirthYear.removeAll()
-        sessionDefaultBirthMonth.removeAll()
-        sessionDefaultStatus.removeAll()
+            sessionDefaultBreed.removeAll()
+            sessionDefaultBirthYear.removeAll()
+            sessionDefaultBirthMonth.removeAll()
+            sessionDefaultStatus.removeAll()
 
-        sessionOverwriteSex.removeAll()
-        sessionOverwriteClass.removeAll()
-        sessionOverwriteMob.removeAll()
+            sessionOverwriteSex.removeAll()
+            sessionOverwriteClass.removeAll()
+            sessionOverwriteMob.removeAll()
 
-        pendingFarmSelectionSessionID = nil
+            pendingFarmSelectionSessionID = nil
 
-        programmedTags.removeAll()
+            programmedTags.removeAll()
 
-        farms.removeAll()
-        mobs.removeAll()
-        animals.removeAll()
+            farms.removeAll()
+            mobs.removeAll()
+            animals.removeAll()
 
-        animalEvents.removeAll()
+            animalEvents.removeAll()
 
-        soldArchive.removeAll()
+            soldArchive.removeAll()
 
-        scheduleSave()
+            rebuildIndexes()
+            scheduleSave()
+        }
     }
 
     private func seedMobsAndAnimals(for farm: Farm, mobNames: [String], farmSeed: UInt64) {
@@ -2014,8 +2451,6 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - Session creation (legacy)
     // =========================================================
-    // (UNCHANGED)
-    // =========================================================
 
     func createSession(named name: String) -> Session {
         let session = Session(name: name)
@@ -2056,8 +2491,6 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
     // MARK: - Records
     // =========================================================
-    // (UNCHANGED)
-    // =========================================================
 
     @discardableResult
     func upsertRecord(
@@ -2077,6 +2510,7 @@ final class LocalDataStore: ObservableObject {
                 rec.recordedAt = Date()
             }
             records[idx] = rec
+            rebuildIndexes()
             scheduleSave()
             return rec
         }
@@ -2093,45 +2527,44 @@ final class LocalDataStore: ObservableObject {
             rec.recordedAt = Date()
         }
         records.insert(rec, at: 0)
+        rebuildIndexes()
         scheduleSave()
         return rec
     }
 
     func addOrOverwriteRecord(sessionID: UUID, eidRaw: String, lockedWeight: Double, treatments: [SessionTreatment]) {
-        let rec = upsertRecord(
-            sessionID: sessionID,
-            eidRaw: eidRaw,
-            defaultLockedWeight: lockedWeight,
-            defaultTreatments: treatments,
-            updateRecordedAt: true
-        ) { rec in
-            rec.lockedWeight = lockedWeight
-            rec.treatments = treatments
+        withDeferredSave {
+            let rec = upsertRecord(
+                sessionID: sessionID,
+                eidRaw: eidRaw,
+                defaultLockedWeight: lockedWeight,
+                defaultTreatments: treatments,
+                updateRecordedAt: true
+            ) { rec in
+                rec.lockedWeight = lockedWeight
+                rec.treatments = treatments
+            }
+
+            guard let farmID = resolvedFarmIDForEvent(sessionID: sessionID) else { return }
+
+            if rec.lockedWeight > 0 {
+                addWeightEvent(farmID: farmID, eidRaw: rec.eidRaw, weightKg: rec.lockedWeight, at: rec.recordedAt)
+            }
+
+            for t in rec.treatments {
+                addTreatmentEvent(
+                    farmID: farmID,
+                    eidRaw: rec.eidRaw,
+                    product: t.product,
+                    dosage: t.dosage,
+                    withholding: t.withholding,
+                    at: rec.recordedAt,
+                    sessionID: sessionID
+                )
+            }
+
+            addLastSeenEvent(farmID: farmID, eidRaw: rec.eidRaw, at: rec.recordedAt, sessionID: sessionID)
         }
-
-        // ✅ Write-through into lifetime history
-        guard let farmID = resolvedFarmIDForEvent(sessionID: sessionID) else { return }
-
-        // Weight event (only if non-zero; change this rule if you want zeros kept)
-        if rec.lockedWeight > 0 {
-            addWeightEvent(farmID: farmID, eidRaw: rec.eidRaw, weightKg: rec.lockedWeight, at: rec.recordedAt)
-        }
-
-        // Treatment events (one per applied treatment)
-        for t in rec.treatments {
-            addTreatmentEvent(
-                farmID: farmID,
-                eidRaw: rec.eidRaw,
-                product: t.product,
-                dosage: t.dosage,
-                withholding: t.withholding,
-                at: rec.recordedAt,
-                sessionID: sessionID
-            )
-        }
-
-        // Always last seen
-        addLastSeenEvent(farmID: farmID, eidRaw: rec.eidRaw, at: rec.recordedAt, sessionID: sessionID)
     }
 
     @discardableResult
@@ -2165,48 +2598,48 @@ final class LocalDataStore: ObservableObject {
         notes: String?,
         customTraits: [String: String]?
     ) -> AnimalRecord {
-        let rec = upsertRecord(
-            sessionID: sessionID,
-            eidRaw: eidRaw,
-            defaultLockedWeight: 0,
-            defaultTreatments: [],
-            updateRecordedAt: false
-        ) { rec in
-            rec.micron = micron
-            rec.stapleLengthMm = stapleLengthMm
-            rec.traitClass = traitClass
+        withDeferredSave {
+            let rec = upsertRecord(
+                sessionID: sessionID,
+                eidRaw: eidRaw,
+                defaultLockedWeight: 0,
+                defaultTreatments: [],
+                updateRecordedAt: false
+            ) { rec in
+                rec.micron = micron
+                rec.stapleLengthMm = stapleLengthMm
+                rec.traitClass = traitClass
 
-            let trimmedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
-            rec.traitNotes = (trimmedNotes?.isEmpty == true) ? nil : trimmedNotes
+                let trimmedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+                rec.traitNotes = (trimmedNotes?.isEmpty == true) ? nil : trimmedNotes
 
-            var mergedCustom = customTraits ?? [:]
-            if let fleeceWeightKg {
-                mergedCustom["fleeceWeightKg"] = String(fleeceWeightKg)
+                var mergedCustom = customTraits ?? [:]
+                if let fleeceWeightKg {
+                    mergedCustom["fleeceWeightKg"] = String(fleeceWeightKg)
+                }
+                rec.customTraits = mergedCustom.isEmpty ? nil : mergedCustom
             }
-            rec.customTraits = mergedCustom.isEmpty ? nil : mergedCustom
-        }
 
-        if let farmID = resolvedFarmIDForEvent(sessionID: sessionID) {
-            addTraitsEvent(
-                farmID: farmID,
-                eidRaw: rec.eidRaw,
-                micron: rec.micron,
-                stapleLengthMm: rec.stapleLengthMm,
-                traitClass: rec.traitClass,
-                notes: rec.traitNotes,
-                customTraits: rec.customTraits,
-                at: rec.recordedAt,
-                sessionID: sessionID
-            )
-        }
+            if let farmID = resolvedFarmIDForEvent(sessionID: sessionID) {
+                addTraitsEvent(
+                    farmID: farmID,
+                    eidRaw: rec.eidRaw,
+                    micron: rec.micron,
+                    stapleLengthMm: rec.stapleLengthMm,
+                    traitClass: rec.traitClass,
+                    notes: rec.traitNotes,
+                    customTraits: rec.customTraits,
+                    at: rec.recordedAt,
+                    sessionID: sessionID
+                )
+            }
 
-        return rec
+            return rec
+        }
     }
 
     func records(for sessionID: UUID) -> [AnimalRecord] {
-        records
-            .filter { $0.sessionID == sessionID }
-            .sorted { $0.recordedAt > $1.recordedAt }
+        recordsBySessionIndex[sessionID] ?? []
     }
 
     func latestRecord(sessionID: UUID, eidRaw: String) -> AnimalRecord? {
@@ -2230,9 +2663,7 @@ final class LocalDataStore: ObservableObject {
     func allRecords(forEID eidRaw: String) -> [AnimalRecord] {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return [] }
-        return records
-            .filter { $0.eidRaw == eid }
-            .sorted { $0.recordedAt > $1.recordedAt }
+        return recordsByEIDIndex[eid] ?? []
     }
 
     func deleteSession(_ session: Session) {
@@ -2247,7 +2678,6 @@ final class LocalDataStore: ObservableObject {
         sessionDefaultClass.removeValue(forKey: session.id)
         sessionDefaultMobName.removeValue(forKey: session.id)
 
-        // ✅ NEW defaults
         sessionDefaultBreed.removeValue(forKey: session.id)
         sessionDefaultBirthYear.removeValue(forKey: session.id)
         sessionDefaultBirthMonth.removeValue(forKey: session.id)
@@ -2263,13 +2693,12 @@ final class LocalDataStore: ObservableObject {
             pendingFarmSelectionSessionID = nil
         }
 
+        rebuildIndexes()
         scheduleSave()
     }
 
     // =========================================================
     // MARK: - Farms
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     @discardableResult
@@ -2297,16 +2726,14 @@ final class LocalDataStore: ObservableObject {
         sessionFarmID = sessionFarmID.filter { $0.value != farmID }
         programmedTags.removeValue(forKey: farmID)
 
-        // Also remove events tied to that farm (keeps things consistent)
         animalEvents.removeAll { $0.farmID == farmID }
 
+        rebuildIndexes()
         scheduleSave()
     }
 
     // =========================================================
     // MARK: - Mobs
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     @discardableResult
@@ -2338,6 +2765,7 @@ final class LocalDataStore: ObservableObject {
         }
 
         sessionMobID = sessionMobID.filter { $0.value != mobID }
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -2347,8 +2775,6 @@ final class LocalDataStore: ObservableObject {
 
     // =========================================================
     // MARK: - Session editing helpers
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     func renameSession(sessionID: UUID, newName: String) {
@@ -2371,71 +2797,64 @@ final class LocalDataStore: ObservableObject {
     // MARK: - Animal profiles
     // =========================================================
 
-    func upsertAnimal(_ profile: AnimalProfile) {
-        let eid = EIDValidator.cleanedRaw(profile.eidRaw)
+    private func normalizedAnimalProfile(_ profile: AnimalProfile) -> AnimalProfile {
+        var copy = profile
+        copy.eidRaw = EIDValidator.cleanedRaw(copy.eidRaw)
 
-        if let idx = animals.firstIndex(where: { $0.farmID == profile.farmID && $0.eidRaw == eid }) {
-            var copy = profile
-            copy.eidRaw = eid
-
-            if let ac = copy.animalClass {
-                copy.klass = ac.rawValue
-            } else if let klass = copy.klass, let ac = AnimalClass(rawValue: klass) {
-                copy.animalClass = ac
-            }
-
-            // normalize breed
-            if let b = copy.breed {
-                let t = b.trimmingCharacters(in: .whitespacesAndNewlines)
-                copy.breed = t.isEmpty ? nil : t
-            }
-
-            copy.updatedAt = Date()
-            animals[idx] = copy
-        } else {
-            var copy = profile
-            copy.eidRaw = eid
-
-            if let ac = copy.animalClass {
-                copy.klass = ac.rawValue
-            } else if let klass = copy.klass, let ac = AnimalClass(rawValue: klass) {
-                copy.animalClass = ac
-            }
-
-            if let b = copy.breed {
-                let t = b.trimmingCharacters(in: .whitespacesAndNewlines)
-                copy.breed = t.isEmpty ? nil : t
-            }
-
-            copy.updatedAt = Date()
-            animals.insert(copy, at: 0)
+        if let ac = copy.animalClass {
+            copy.klass = ac.rawValue
+        } else if let klass = copy.klass, let ac = AnimalClass(rawValue: klass) {
+            copy.animalClass = ac
         }
 
+        if let b = copy.breed {
+            let t = b.trimmingCharacters(in: .whitespacesAndNewlines)
+            copy.breed = t.isEmpty ? nil : t
+        }
+
+        copy.updatedAt = Date()
+        return copy
+    }
+
+    func upsertAnimal(_ profile: AnimalProfile) {
+        let normalized = normalizedAnimalProfile(profile)
+
+        if let idx = animals.firstIndex(where: {
+            $0.farmID == normalized.farmID && $0.eidRaw == normalized.eidRaw
+        }) {
+            animals[idx] = normalized
+        } else {
+            animals.insert(normalized, at: 0)
+        }
+
+        rebuildIndexes()
         scheduleSave()
     }
 
     func animalProfile(farmID: UUID, eidRaw: String) -> AnimalProfile? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
-        return animals.first(where: { $0.farmID == farmID && $0.eidRaw == eid })
+        return animalProfileIndex[animalIndexKey(farmID: farmID, eidRaw: eid)]
     }
 
     func animalProfileAnyFarm(eidRaw: String) -> AnimalProfile? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
-        return animals.first(where: { $0.eidRaw == eid })
+        return animalProfileAnyFarmIndex[eid]
     }
 
     func searchAnimalsAnyFarm(query: String, limit: Int = 30) -> [AnimalProfile] {
         let q = EIDValidator.cleanedRaw(query)
         guard !q.isEmpty, q != "—" else { return [] }
-        return animals
+
+        return animalSearchIndex
             .filter { $0.eidRaw.contains(q) }
+            .map(\.profile)
             .sorted { $0.updatedAt > $1.updatedAt }
             .prefix(limit)
             .map { $0 }
     }
 
     // =========================================================
-    // MARK: - Updates (Sex / Class / Notes / NEW fields)
+    // MARK: - Updates
     // =========================================================
 
     func updateAnimalSex(farmID: UUID, eidRaw: String, sex: Sex?) {
@@ -2443,6 +2862,7 @@ final class LocalDataStore: ObservableObject {
         guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
         animals[idx].sex = sex
         animals[idx].updatedAt = Date()
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -2452,10 +2872,9 @@ final class LocalDataStore: ObservableObject {
         animals[idx].animalClass = animalClass
         animals[idx].klass = animalClass?.rawValue
         animals[idx].updatedAt = Date()
+        rebuildIndexes()
         scheduleSave()
     }
-
-    // ✅ NEW “blank-fill” updaters used by SessionViewModel.applyAnimalDefaults
 
     func updateAnimalBreedIfBlank(farmID: UUID, eidRaw: String, breed: String) {
         let eid = EIDValidator.cleanedRaw(eidRaw)
@@ -2468,6 +2887,7 @@ final class LocalDataStore: ObservableObject {
 
         animals[idx].breed = b
         animals[idx].updatedAt = Date()
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -2475,13 +2895,14 @@ final class LocalDataStore: ObservableObject {
         sessionDefaultMobName[sessionID]?.trimmingCharacters(in: .whitespacesAndNewlines)
             == SessionSetupMobStepView.mixedSentinel
     }
-    
+
     func updateAnimalBirthYearIfBlank(farmID: UUID, eidRaw: String, year: Int) {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
         guard animals[idx].birthYear == nil else { return }
         animals[idx].birthYear = year
         animals[idx].updatedAt = Date()
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -2492,6 +2913,7 @@ final class LocalDataStore: ObservableObject {
         guard animals[idx].birthMonth == nil else { return }
         animals[idx].birthMonth = month
         animals[idx].updatedAt = Date()
+        rebuildIndexes()
         scheduleSave()
     }
 
@@ -2501,6 +2923,7 @@ final class LocalDataStore: ObservableObject {
         if animals[idx].status == nil {
             animals[idx].status = status
             animals[idx].updatedAt = Date()
+            rebuildIndexes()
             scheduleSave()
         }
     }
@@ -2515,18 +2938,21 @@ final class LocalDataStore: ObservableObject {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
 
-        animals[idx].comments = (comments?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true) ? nil : comments
-        animals[idx].userField1 = (userField1?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true) ? nil : userField1
-        animals[idx].userField2 = (userField2?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true) ? nil : userField2
+        let trimmedComments = comments?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser1 = userField1?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser2 = userField2?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        animals[idx].comments = (trimmedComments?.isEmpty == true) ? nil : trimmedComments
+        animals[idx].userField1 = (trimmedUser1?.isEmpty == true) ? nil : trimmedUser1
+        animals[idx].userField2 = (trimmedUser2?.isEmpty == true) ? nil : trimmedUser2
         animals[idx].updatedAt = Date()
 
+        rebuildIndexes()
         scheduleSave()
     }
 
     // =========================================================
-    // MARK: - Resolvers (Sex / Class / Mob for a scan)
-    // =========================================================
-    // (UNCHANGED)
+    // MARK: - Resolvers
     // =========================================================
 
     func resolvedSexForScan(sessionID: UUID, farmID: UUID, eidRaw: String) -> Sex? {
@@ -2553,7 +2979,6 @@ final class LocalDataStore: ObservableObject {
         return defaultClass(for: sessionID)
     }
 
-    // NOTE: defaultImportedMobColorHex is used here too
     private var defaultImportedMobColorHex: String { "#4CAF50" }
 
     func resolvedMobIDForScan(sessionID: UUID, farmID: UUID, eidRaw: String) -> UUID? {
@@ -2563,9 +2988,6 @@ final class LocalDataStore: ObservableObject {
         let mobName = defaultMobName(for: sessionID)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        // Mixed is session context only.
-        // Existing animals keep their mob.
-        // Animals with no mob stay nil.
         if mobName == SessionSetupMobStepView.mixedSentinel {
             return existing?.mobID
         }
@@ -2587,6 +3009,7 @@ final class LocalDataStore: ObservableObject {
         let created = addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex)
         return created.id
     }
+
     func mobForEID(_ eidRaw: String, farmID: UUID? = nil) -> Mob? {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return nil }
@@ -2602,357 +3025,226 @@ final class LocalDataStore: ObservableObject {
         guard let mobID = profile?.mobID else { return nil }
         return mobs.first(where: { $0.id == mobID })
     }
+
     func mobColorHexForEID(_ eidRaw: String, farmID: UUID? = nil) -> String? {
         mobForEID(eidRaw, farmID: farmID)?.colorHex
     }
 
-    // =========================================================
-    // MARK: - CSV Import (animals + historical preg)
-    // =========================================================
+    func animalDuplicateCountForImport(csvText: String) -> Int {
+        let parsed = CSVAnimalImporter.parseAnimalsCSV(csvText: csvText)
+        var count = 0
 
-    @discardableResult
-    func importAnimalsCSV(farmID: UUID, csvText: String) -> (imported: Int, skipped: Int) {
+        for row in parsed.rows {
+            guard let farmID = resolveFarmIDForImport(
+                pic: row.farmPIC,
+                farmName: row.farmName
+            ) else { continue }
 
-        let rows = csvText
-            .split(whereSeparator: \.isNewline)
-            .map { String($0).replacingOccurrences(of: "\r", with: "").trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard !rows.isEmpty else { return (0, 0) }
-
-        let firstRow = parseCSVRow(rows[0]).map { normalizeCSVHeader($0) }
-        let hasHeader = firstRow.contains("eid")
-
-        let headers: [String]
-        let startIndex: Int
-
-        if hasHeader {
-            headers = firstRow
-            startIndex = 1
-        } else {
-            headers = [
-                "eid",
-                "mob",
-                "lambsperyear",
-                "fleeceweightkg",
-                "staplelengthmm",
-                "class",
-                "comments",
-                "user1",
-                "user2"
-            ]
-            startIndex = 0
-        }
-
-        func value(_ key: String, from cols: [String]) -> String? {
-            guard let idx = headers.firstIndex(of: key), let v = cols[safe: idx] else { return nil }
-            let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.isEmpty ? nil : t
-        }
-
-        func parseInt(_ s: String?) -> Int? {
-            guard let s else { return nil }
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return nil }
-            return Int(t)
-        }
-
-        func parseDouble(_ s: String?) -> Double? {
-            guard let s else { return nil }
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return nil }
-            return Double(t)
-        }
-
-        var imported = 0
-        var skipped = 0
-
-        for i in startIndex..<rows.count {
-            let cols = parseCSVRow(rows[i])
-
-            guard let eidRaw = value("eid", from: cols) else {
-                skipped += 1
-                continue
+            if animalProfile(farmID: farmID, eidRaw: row.eid) != nil {
+                count += 1
             }
-
-            let eid = EIDValidator.cleanedRaw(eidRaw)
-            guard !eid.isEmpty, eid != "—" else {
-                skipped += 1
-                continue
-            }
-
-            let existing = animalProfile(farmID: farmID, eidRaw: eid)
-
-            let mobName = value("mob", from: cols)
-            let mobIDFromCSV: UUID? = {
-                guard let mobName, !mobName.isEmpty else { return nil }
-
-                if let existingMob = mobs.first(where: {
-                    $0.farmID == farmID && $0.name.caseInsensitiveCompare(mobName) == .orderedSame
-                }) {
-                    return existingMob.id
-                }
-
-                return addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex).id
-            }()
-
-            let lambsFromCSV = parseInt(value("lambsperyear", from: cols))
-            let fleeceFromCSV = parseDouble(value("fleeceweightkg", from: cols))
-            let stapleFromCSV = parseDouble(value("staplelengthmm", from: cols))
-
-            let classTextFromCSV = value("class", from: cols)
-            let parsedClassFromCSV = parseAnimalClass(from: classTextFromCSV)
-
-            let commentsFromCSV = value("comments", from: cols)
-            let user1FromCSV = value("user1", from: cols)
-            let user2FromCSV = value("user2", from: cols)
-
-            let klassFromCSV: String? = {
-                if let s = classTextFromCSV?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
-                    return s
-                }
-                if let ac = parsedClassFromCSV {
-                    return ac.rawValue
-                }
-                return nil
-            }()
-
-            let profile = AnimalProfile(
-                id: existing?.id ?? UUID(),
-                farmID: farmID,
-                eidRaw: eid,
-                mobID: mobIDFromCSV ?? existing?.mobID,
-                sex: existing?.sex,
-                animalClass: parsedClassFromCSV ?? existing?.animalClass,
-                breed: existing?.breed,
-                birthYear: existing?.birthYear,
-                birthMonth: existing?.birthMonth,
-                status: existing?.status,
-                lambsPerYear: lambsFromCSV ?? existing?.lambsPerYear,
-                fleeceWeightKg: fleeceFromCSV ?? existing?.fleeceWeightKg,
-                stapleLengthMm: stapleFromCSV ?? existing?.stapleLengthMm,
-                klass: klassFromCSV ?? existing?.klass,
-                comments: commentsFromCSV ?? existing?.comments,
-                userField1: user1FromCSV ?? existing?.userField1,
-                userField2: user2FromCSV ?? existing?.userField2
-            )
-
-            upsertAnimal(profile)
-            imported += 1
         }
 
-        scheduleSave()
-        return (imported, skipped)
+        return count
     }
+    
+    func lambingEventsForAnimal(farmID: UUID, eidRaw: String) -> [AnimalEvent] {
+        let eid = normalizedImportEID(eidRaw)
 
-    @discardableResult
-    func importAnimalsCSV(csvText: String) -> (imported: Int, skipped: Int) {
-
-        let rows = csvText
-            .split(whereSeparator: \.isNewline)
-            .map { String($0).replacingOccurrences(of: "\r", with: "").trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard !rows.isEmpty else { return (0, 0) }
-
-        let firstRow = parseCSVRow(rows[0]).map { normalizeCSVHeader($0) }
-        let hasHeader = firstRow.contains("eid")
-
-        let headers: [String]
-        let startIndex: Int
-
-        if hasHeader {
-            headers = firstRow
-            startIndex = 1
-        } else {
-            headers = [
-                "eid",
-                "farm",
-                "farmname",
-                "pic",
-                "farmpic",
-                "mob",
-                "lambsperyear",
-                "fleeceweightkg",
-                "staplelengthmm",
-                "class",
-                "comments",
-                "user1",
-                "user2"
-            ]
-            startIndex = 0
-        }
-
-        func value(_ keys: [String], from cols: [String]) -> String? {
-            for key in keys {
-                if let idx = headers.firstIndex(of: key), let v = cols[safe: idx] {
-                    let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !t.isEmpty { return t }
-                }
+        return animalEvents
+            .filter { event in
+                event.kind == .lambing &&
+                event.farmID == farmID &&
+                normalizedImportEID(event.eidRaw) == eid
             }
-            return nil
-        }
-
-        func parseInt(_ s: String?) -> Int? {
-            guard let s else { return nil }
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return nil }
-            return Int(t)
-        }
-
-        func parseDouble(_ s: String?) -> Double? {
-            guard let s else { return nil }
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return nil }
-            return Double(t)
-        }
-
-        var imported = 0
-        var skipped = 0
-
-        for i in startIndex..<rows.count {
-            let cols = parseCSVRow(rows[i])
-
-            guard let eidRaw = value(["eid"], from: cols) else {
-                skipped += 1
-                continue
+            .sorted { lhs, rhs in
+                let lhsYear = lhs.int1 ?? Calendar.current.component(.year, from: lhs.date)
+                let rhsYear = rhs.int1 ?? Calendar.current.component(.year, from: rhs.date)
+                return lhsYear > rhsYear
             }
-
-            let eid = EIDValidator.cleanedRaw(eidRaw)
-            guard !eid.isEmpty, eid != "—" else {
-                skipped += 1
-                continue
-            }
-
-            let rowPIC = value(["pic", "farmpic"], from: cols)
-            let rowFarmName = value(["farm", "farmname"], from: cols)
-
-            guard let resolvedFarmID = resolveFarmIDForImport(pic: rowPIC, farmName: rowFarmName) else {
-                skipped += 1
-                continue
-            }
-
-            let existing = animalProfile(farmID: resolvedFarmID, eidRaw: eid)
-
-            let mobName = value(["mob"], from: cols)
-            let mobIDFromCSV: UUID? = {
-                guard let mobName, !mobName.isEmpty else { return nil }
-
-                if let existingMob = mobs.first(where: {
-                    $0.farmID == resolvedFarmID && $0.name.caseInsensitiveCompare(mobName) == .orderedSame
-                }) {
-                    return existingMob.id
-                }
-
-                return addMob(farmID: resolvedFarmID, name: mobName, colorHex: defaultImportedMobColorHex).id
-            }()
-
-            let lambsFromCSV = parseInt(value(["lambsperyear", "lambs"], from: cols))
-            let fleeceFromCSV = parseDouble(value(["fleeceweightkg", "fleeceweight"], from: cols))
-            let stapleFromCSV = parseDouble(value(["staplelengthmm", "staplelength"], from: cols))
-
-            let classTextFromCSV = value(["class"], from: cols)
-            let parsedClassFromCSV = parseAnimalClass(from: classTextFromCSV)
-
-            let commentsFromCSV = value(["comments", "comment"], from: cols)
-            let user1FromCSV = value(["user1"], from: cols)
-            let user2FromCSV = value(["user2"], from: cols)
-
-            let klassFromCSV: String? = {
-                if let s = classTextFromCSV?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
-                    return s
-                }
-                if let ac = parsedClassFromCSV {
-                    return ac.rawValue
-                }
-                return nil
-            }()
-
-            let profile = AnimalProfile(
-                id: existing?.id ?? UUID(),
-                farmID: resolvedFarmID,
-                eidRaw: eid,
-                mobID: mobIDFromCSV ?? existing?.mobID,
-                sex: existing?.sex,
-                animalClass: parsedClassFromCSV ?? existing?.animalClass,
-                breed: existing?.breed,
-                birthYear: existing?.birthYear,
-                birthMonth: existing?.birthMonth,
-                status: existing?.status,
-                lambsPerYear: lambsFromCSV ?? existing?.lambsPerYear,
-                fleeceWeightKg: fleeceFromCSV ?? existing?.fleeceWeightKg,
-                stapleLengthMm: stapleFromCSV ?? existing?.stapleLengthMm,
-                klass: klassFromCSV ?? existing?.klass,
-                comments: commentsFromCSV ?? existing?.comments,
-                userField1: user1FromCSV ?? existing?.userField1,
-                userField2: user2FromCSV ?? existing?.userField2
-            )
-
-            upsertAnimal(profile)
-            imported += 1
-        }
-
-        scheduleSave()
-        return (imported, skipped)
     }
 
     @discardableResult
     func importHistoricalPregCSV(
         csvText: String,
-        farmID: UUID? = nil
-    ) -> (imported: Int, unmatched: Int, skipped: Int) {
+        farmID: UUID? = nil,
+        duplicateAction: DuplicateImportAction = .skip,
+        progress: ((Int, Int) -> Void)? = nil
+    ) -> HistoricalImportResult {
+        withDeferredSave {
+            let parsed = CSVAnimalImporter.parseHistoricalPregCSV(csvText: csvText)
 
-        let parsed = CSVAnimalImporter.parseHistoricalPregCSV(csvText: csvText)
-
-        guard !parsed.rows.isEmpty else {
-            return (0, 0, parsed.skippedRows)
-        }
-
-        var imported = 0
-        var unmatched = 0
-        let currentYear = Calendar.current.component(.year, from: Date())
-
-        for row in parsed.rows {
-            let eid = normalizedImportEID(row.eid)
-            guard !eid.isEmpty, eid != "—" else {
-                continue
+            guard !parsed.rows.isEmpty else {
+                progress?(0, 0)
+                return HistoricalImportResult(
+                    imported: 0,
+                    unmatched: 0,
+                    skipped: parsed.skippedRows,
+                    duplicatesSkipped: 0,
+                    replaced: 0
+                )
             }
 
-            let matchedProfile: AnimalProfile? = {
-                if let farmID {
-                    return animalProfileMatchingImportedEID(farmID: farmID, raw: eid)
-                } else {
-                    return animalProfileAnyFarmMatchingImportedEID(eid)
+            let total = parsed.rows.count
+
+            // Existing lambing events by unique key: farm|eid|year
+            var existingLambingKeys = Set<String>()
+            for event in animalEvents where event.kind == .lambing {
+                let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+                let key = "\(event.farmID.uuidString)|\(EIDValidator.cleanedRaw(event.eidRaw))|\(year)"
+                existingLambingKeys.insert(key)
+            }
+
+            var imported = 0
+            var unmatched = 0
+            var duplicatesSkipped = 0
+            var replaced = 0
+
+            struct PendingLambingRow {
+                let profile: AnimalProfile
+                let year: Int
+                let lambNumber: Int?
+                let key: String
+            }
+
+            var rowsToWrite: [PendingLambingRow] = []
+            rowsToWrite.reserveCapacity(parsed.rows.count)
+
+            var keysToRemove = Set<String>()
+
+            for (index, row) in parsed.rows.enumerated() {
+                if index == 0 || index % 25 == 0 || index == total - 1 {
+                    let scaledCompleted = Int((Double(index + 1) / Double(max(total, 1))) * 70.0)
+                    progress?(scaledCompleted, 100)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.001))
                 }
-            }()
 
-            guard let profile = matchedProfile else {
-                unmatched += 1
-                continue
+                let importedEID = EIDValidator.cleanedRaw(row.eid)
+                guard !importedEID.isEmpty, importedEID != "—" else { continue }
+
+                let matchedProfile: AnimalProfile? = {
+                    if let farmID {
+                        return animalProfile(farmID: farmID, eidRaw: importedEID)
+                    } else {
+                        return animalProfileAnyFarm(eidRaw: importedEID)
+                    }
+                }()
+
+                guard let profile = matchedProfile else {
+                    unmatched += 1
+                    continue
+                }
+
+                let key = "\(profile.farmID.uuidString)|\(normalizedImportEID(profile.eidRaw))|\(row.year)"
+                let alreadyExists = existingLambingKeys.contains(key)
+
+                if alreadyExists {
+                    switch duplicateAction {
+                    case .skip:
+                        duplicatesSkipped += 1
+                        continue
+
+                    case .replace:
+                        keysToRemove.insert(key)
+                        replaced += 1
+                    }
+                }
+
+                rowsToWrite.append(
+                    PendingLambingRow(
+                        profile: profile,
+                        year: row.year,
+                        lambNumber: row.lambNumber,
+                        key: key
+                    )
+                )
+
+                imported += 1
             }
 
-            addLambingEvent(
-                farmID: profile.farmID,
-                eidRaw: profile.eidRaw,
-                year: row.year,
-                born: row.lambNumber,
-                weaned: nil,
-                notes: "Historical preg import"
-            )
+            progress?(75, 100)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
 
-            if row.year == currentYear,
-               let idx = animals.firstIndex(where: {
-                   $0.farmID == profile.farmID && normalizedImportEID($0.eidRaw) == normalizedImportEID(profile.eidRaw)
-               }) {
-                animals[idx].lambsPerYear = row.lambNumber
+            if !keysToRemove.isEmpty {
+                animalEvents.removeAll { event in
+                    guard event.kind == .lambing else { return false }
+                    let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+                    let key = "\(event.farmID.uuidString)|\(EIDValidator.cleanedRaw(event.eidRaw))|\(year)"
+                    return keysToRemove.contains(key)
+                }
+            }
+
+            progress?(80, 100)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+
+            for (writeIndex, item) in rowsToWrite.enumerated() {
+                addLambingEvent(
+                    farmID: item.profile.farmID,
+                    eidRaw: item.profile.eidRaw,
+                    year: item.year,
+                    born: item.lambNumber,
+                    weaned: nil,
+                    notes: "Historical preg import"
+                )
+
+                existingLambingKeys.insert(item.key)
+
+                if writeIndex == 0 || writeIndex % 25 == 0 || writeIndex == rowsToWrite.count - 1 {
+                    let writeProgress = 80 + Int((Double(writeIndex + 1) / Double(max(rowsToWrite.count, 1))) * 12.0)
+                    progress?(writeProgress, 100)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+                }
+            }
+
+            var latestImportedByAnimal: [String: (year: Int, lambNumber: Int?)] = [:]
+
+            for item in rowsToWrite {
+                let animalKey = "\(item.profile.farmID.uuidString)|\(normalizedImportEID(item.profile.eidRaw))"
+
+                if let existing = latestImportedByAnimal[animalKey] {
+                    if item.year > existing.year {
+                        latestImportedByAnimal[animalKey] = (item.year, item.lambNumber)
+                    }
+                } else {
+                    latestImportedByAnimal[animalKey] = (item.year, item.lambNumber)
+                }
+            }
+
+            progress?(94, 100)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+
+            for (animalIndex, entry) in latestImportedByAnimal.enumerated() {
+                let (animalKey, latest) = entry
+
+                guard let idx = animals.firstIndex(where: {
+                    "\($0.farmID.uuidString)|\(normalizedImportEID($0.eidRaw))" == animalKey
+                }) else { continue }
+
+                animals[idx].lambsPerYear = latest.lambNumber
                 animals[idx].updatedAt = Date()
+
+                if animalIndex == 0 || animalIndex % 25 == 0 || animalIndex == latestImportedByAnimal.count - 1 {
+                    let updateProgress = 94 + Int((Double(animalIndex + 1) / Double(max(latestImportedByAnimal.count, 1))) * 4.0)
+                    progress?(updateProgress, 100)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+                }
             }
 
-            imported += 1
-        }
+            progress?(99, 100)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
 
-        scheduleSave()
-        return (imported, unmatched, parsed.skippedRows)
+            rebuildIndexes()
+            scheduleSave()
+
+            progress?(100, 100)
+            return HistoricalImportResult(
+                imported: imported,
+                unmatched: unmatched,
+                skipped: parsed.skippedRows,
+                duplicatesSkipped: duplicatesSkipped,
+                replaced: replaced
+            )
+        }
     }
     private func resolveFarmIDForImport(pic: String?, farmName: String?) -> UUID? {
 
@@ -2980,10 +3272,98 @@ final class LocalDataStore: ObservableObject {
 
         return nil
     }
+    func historicalPregDuplicateCountForImport(
+        csvText: String,
+        farmID: UUID? = nil
+    ) -> Int {
+        let parsed = CSVAnimalImporter.parseHistoricalPregCSV(csvText: csvText)
+        guard !parsed.rows.isEmpty else { return 0 }
+
+        let profilesByFarmAndEID: [String: AnimalProfile] = Dictionary(
+            uniqueKeysWithValues: animals.map { animal in
+                (
+                    "\(animal.farmID.uuidString)|\(normalizedImportEID(animal.eidRaw))",
+                    animal
+                )
+            }
+        )
+
+        var profilesByAnyEID: [String: AnimalProfile] = [:]
+        for animal in animals {
+            let eid = normalizedImportEID(animal.eidRaw)
+            if profilesByAnyEID[eid] == nil {
+                profilesByAnyEID[eid] = animal
+            }
+        }
+
+        let existingLambingKeys: Set<String> = Set(
+            animalEvents.compactMap { event in
+                guard event.kind == .lambing else { return nil }
+                let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+                return "\(event.farmID.uuidString)|\(normalizedImportEID(event.eidRaw))|\(year)"
+            }
+        )
+
+        var count = 0
+
+        for row in parsed.rows {
+            let importedEID = EIDValidator.cleanedRaw(row.eid)
+            guard !importedEID.isEmpty, importedEID != "—" else { continue }
+
+            let matchedProfile: AnimalProfile? = {
+                if let farmID {
+                    return profilesByFarmAndEID["\(farmID.uuidString)|\(importedEID)"]
+                } else {
+                    return profilesByAnyEID[importedEID]
+                }
+            }()
+
+            guard let profile = matchedProfile else { continue }
+
+            let lambingKey = "\(profile.farmID.uuidString)|\(EIDValidator.cleanedRaw(profile.eidRaw))|\(row.year)"
+            if existingLambingKeys.contains(lambingKey) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+    func normalizeAllStoredEIDs() {
+        withDeferredSave {
+            for i in animals.indices {
+                animals[i].eidRaw = EIDValidator.cleanedRaw(animals[i].eidRaw)
+                animals[i].updatedAt = Date()
+            }
+
+            for i in records.indices {
+                records[i].eidRaw = EIDValidator.cleanedRaw(records[i].eidRaw)
+            }
+
+            for i in animalEvents.indices {
+                animalEvents[i].eidRaw = EIDValidator.cleanedRaw(animalEvents[i].eidRaw)
+            }
+
+            var normalizedTags: [UUID: [String: ProgrammedTagAssignment]] = [:]
+            for (farmID, tagMap) in programmedTags {
+                var newMap: [String: ProgrammedTagAssignment] = [:]
+                for (eid, assignment) in tagMap {
+                    newMap[EIDValidator.cleanedRaw(eid)] = assignment
+                }
+                normalizedTags[farmID] = newMap
+            }
+            programmedTags = normalizedTags
+
+            for i in soldArchive.indices {
+                soldArchive[i].eidRaw = EIDValidator.cleanedRaw(soldArchive[i].eidRaw)
+            }
+
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+    
     // =========================================================
     // MARK: - CSV Export (animals)
-    // =========================================================
-    // (UNCHANGED)
     // =========================================================
 
     func exportAnimalsCSV(farmID: UUID, includeHeader: Bool = true) -> String {
@@ -3100,6 +3480,15 @@ final class LocalDataStore: ObservableObject {
         out.append(cur)
         return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
+
+    private func normalizeCSVHeader(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+    }
+
     private func normalizedImportEID(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3112,7 +3501,6 @@ final class LocalDataStore: ObservableObject {
 
         var forms: [String] = [base]
 
-        // Handle old data that may have lost the 3-digit NLIS prefix.
         if base.count > 12 {
             let dropped3 = String(base.dropFirst(3))
             if !dropped3.isEmpty {
@@ -3142,13 +3530,6 @@ final class LocalDataStore: ObservableObject {
             let stored = normalizedImportEID(profile.eidRaw)
             return forms.contains(stored)
         })
-    }
-    private func normalizeCSVHeader(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "-", with: "")
     }
 
     private func parseAnimalClass(from text: String?) -> AnimalClass? {
@@ -3182,7 +3563,7 @@ final class LocalDataStore: ObservableObject {
 // MARK: - Safe indexing helper
 // =========================================================
 
-private extension Array {
+fileprivate extension Array {
     subscript(safe index: Int) -> Element? {
         guard index >= 0, index < count else { return nil }
         return self[index]

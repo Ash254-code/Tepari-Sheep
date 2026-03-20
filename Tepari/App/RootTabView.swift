@@ -22,6 +22,10 @@ struct RootTabView: View {
     @State private var iPadTab: AppTab = .session
     @State private var phoneTab: AppTab = .session
 
+    // ✅ Hard reset tokens for More tab root
+    @State private var morePhoneResetID = UUID()
+    @State private var moreIPadResetID = UUID()
+
     private let iPadTabBarHeight: CGFloat = 58
     private let iPadTabBarBottomPad: CGFloat = 8
 
@@ -72,6 +76,14 @@ struct RootTabView: View {
         transport.method == .demo ? .connected : transport.state
     }
 
+    private func resetMoreStack(isPhone: Bool) {
+        if isPhone {
+            morePhoneResetID = UUID()
+        } else {
+            moreIPadResetID = UUID()
+        }
+    }
+
     private func goToDraftTab() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             if Device.isPhone {
@@ -90,6 +102,24 @@ struct RootTabView: View {
                 iPadTab = .session
             }
         }
+    }
+
+    private func goToIndividualTab() {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            if Device.isPhone {
+                phoneTab = .individual
+            } else {
+                iPadTab = .individual
+            }
+        }
+    }
+
+    private func openAnimalInIndividualTab(_ animal: LocalDataStore.AnimalProfile) {
+        sessionCoordinator.openIndividualAnimal(
+            eidRaw: animal.eidRaw,
+            farmID: animal.farmID
+        )
+        goToIndividualTab()
     }
 
     private func goHome() {
@@ -182,18 +212,18 @@ struct RootTabView: View {
                     }
                     .tag(AppTab.history)
 
-                    SettingsMenuView()
-                        .applyGlobalNavPills(
-                            handlerState: handlerState,
-                            draftState: draftState,
-                            stickState: stickState,
-                            onTapHome: { goHome() }
-                        )
-                        .tabItem {
-                            Image(systemName: "ellipsis.circle")
-                            Text("More")
-                        }
-                        .tag(AppTab.more)
+                    MoreTabRoot(
+                        resetID: morePhoneResetID,
+                        handlerState: handlerState,
+                        draftState: draftState,
+                        stickState: stickState,
+                        onTapHome: { goHome() }
+                    )
+                    .tabItem {
+                        Image(systemName: "ellipsis.circle")
+                        Text("More")
+                    }
+                    .tag(AppTab.more)
                 }
                 .toolbar(.visible, for: .tabBar)
                 .toolbarBackground(.visible, for: .tabBar)
@@ -214,11 +244,16 @@ struct RootTabView: View {
                         .transition(.opacity)
                     }
 
-                    GlassPillTabBar(selection: $iPadTab)
-                        .frame(height: iPadTabBarHeight)
-                        .padding(.horizontal, 18)
-                        .padding(.bottom, iPadTabBarBottomPad)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                    GlassPillTabBar(
+                        selection: $iPadTab,
+                        onReselectMore: {
+                            resetMoreStack(isPhone: false)
+                        }
+                    )
+                    .frame(height: iPadTabBarHeight)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, iPadTabBarBottomPad)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
             }
         }
@@ -270,6 +305,16 @@ struct RootTabView: View {
         }
         .onChange(of: draftSettings.gateMap) { _, newMap in
             sessionVM.draftEngine?.gateMap = newMap
+        }
+        .onChange(of: phoneTab) { oldValue, newValue in
+            if newValue == .more && oldValue != .more {
+                resetMoreStack(isPhone: true)
+            }
+        }
+        .onChange(of: iPadTab) { oldValue, newValue in
+            if newValue == .more && oldValue != .more {
+                resetMoreStack(isPhone: false)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             DraftWifiController.startDiscovery()
@@ -351,13 +396,13 @@ struct RootTabView: View {
             }
 
         case .more:
-            SettingsMenuView()
-                .applyGlobalNavPills(
-                    handlerState: handlerState,
-                    draftState: draftState,
-                    stickState: stickState,
-                    onTapHome: { goHome() }
-                )
+            MoreTabRoot(
+                resetID: moreIPadResetID,
+                handlerState: handlerState,
+                draftState: draftState,
+                stickState: stickState,
+                onTapHome: { goHome() }
+            )
         }
     }
 }
@@ -406,8 +451,13 @@ private struct GlobalNavPillsModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        let usage = activeTypes.map(connectionPillUsage)
-            ?? (h: true, d: true, s: true, x: true, g: true)
+        let usage: (h: Bool, d: Bool, s: Bool, x: Bool, g: Bool)
+
+        if let activeTypes, !activeTypes.isEmpty {
+            usage = connectionPillUsage(for: activeTypes)
+        } else {
+            usage = (h: true, d: true, s: true, x: true, g: true)
+        }
 
         return content
             .toolbar {
@@ -485,9 +535,31 @@ private enum AppTab: Hashable {
     }
 }
 
+private struct MoreTabRoot: View {
+    let resetID: UUID
+    let handlerState: ConnectionState
+    let draftState: ConnectionState
+    let stickState: ConnectionState
+    let onTapHome: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            SettingsMenuView()
+                .applyGlobalNavPills(
+                    handlerState: handlerState,
+                    draftState: draftState,
+                    stickState: stickState,
+                    onTapHome: onTapHome
+                )
+        }
+        .id(resetID)
+    }
+}
+
 private struct GlassPillTabBar: View {
 
     @Binding var selection: AppTab
+    var onReselectMore: (() -> Void)? = nil
 
     private let tabs: [AppTab] = [.session, .individual, .drafting, .summary, .more]
 
@@ -514,7 +586,11 @@ private struct GlassPillTabBar: View {
         let isSelected = (selection == tab)
 
         return Button {
-            selection = tab
+            if tab == .more && selection == .more {
+                onReselectMore?()
+            } else {
+                selection = tab
+            }
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: tab.icon)

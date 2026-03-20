@@ -1,8 +1,8 @@
 import SwiftUI
 
 // =========================================================
-// MARK: - Traits Quick Picks Editor (0–10, reorder, delete)
-// Includes Micron + Staple + 2 User Defined (custom1/custom2)
+// MARK: - Traits Quick Picks Editor
+// Modern glass-style version
 // =========================================================
 
 struct TraitsQuickPicksSettingsView: View {
@@ -26,157 +26,341 @@ struct TraitsQuickPicksSettingsView: View {
     @State private var newCustomPickText: [String: String] = [:] // id -> text
 
     var body: some View {
-        Form {
+        ZStack {
+            GlassBackground()
 
-            // ----------------------------
-            // Micron
-            // ----------------------------
-            Section {
-                HStack(spacing: 10) {
-                    TextField("Add micron…", text: $newMicronText)
-                        .keyboardType(.decimalPad)
+            ScrollView {
+                VStack(spacing: 14) {
+                    headerCard
 
-                    Button("Add") { addMicron() }
-                        .disabled(!canAddMicron)
+                    quickPickCard(
+                        title: "Micron",
+                        subtitle: "Shown as one-tap chips in Trait Input sessions.",
+                        placeholder: "Add micron…",
+                        helperText: "\(micron.count)/\(maxCount)",
+                        text: $newMicronText,
+                        addAction: addMicron,
+                        canAdd: canAddMicron
+                    ) {
+                        if micron.isEmpty {
+                            emptyInlineState("No micron quick picks.")
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(Array(micron.enumerated()), id: \.offset) { index, value in
+                                    quickPickRow(
+                                        title: formatMicron(value),
+                                        canMoveUp: index > 0,
+                                        canMoveDown: index < micron.count - 1,
+                                        onMoveUp: { moveMicronUp(at: index) },
+                                        onMoveDown: { moveMicronDown(at: index) },
+                                        onDelete: { deleteMicron(at: index) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    quickPickCard(
+                        title: "Staple Length",
+                        subtitle: "Up to 10 quick picks. Shown in Trait Input sessions.",
+                        placeholder: "Add staple (mm)…",
+                        helperText: "\(stapleMm.count)/\(maxCount)",
+                        text: $newStapleText,
+                        addAction: addStaple,
+                        canAdd: canAddStaple
+                    ) {
+                        if stapleMm.isEmpty {
+                            emptyInlineState("No staple length quick picks.")
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(Array(stapleMm.enumerated()), id: \.offset) { index, value in
+                                    quickPickRow(
+                                        title: "\(value) mm",
+                                        canMoveUp: index > 0,
+                                        canMoveDown: index < stapleMm.count - 1,
+                                        onMoveUp: { moveStapleUp(at: index) },
+                                        onMoveDown: { moveStapleDown(at: index) },
+                                        onDelete: { deleteStaple(at: index) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    ForEach(Array(customFields.enumerated()), id: \.element.id) { index, def in
+                        customFieldCard(index: index, def: def)
+                    }
+
+                    Spacer(minLength: 10)
                 }
-
-                if micron.isEmpty {
-                    Text("No micron quick picks.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(micron, id: \.self) { v in
-                        Text(formatMicron(v))
-                    }
-                    .onDelete { idx in
-                        micron.remove(atOffsets: idx)
-                        persist()
-                    }
-                    .onMove { from, to in
-                        micron.move(fromOffsets: from, toOffset: to)
-                        persist()
-                    }
-                }
-
-                Text("\(micron.count)/\(maxCount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-            } header: {
-                Text("Micron quick picks")
-            } footer: {
-                Text("Shown as one-tap chips in Trait Input sessions.")
-            }
-
-            // ----------------------------
-            // Staple length (mm)
-            // ----------------------------
-            Section {
-                HStack(spacing: 10) {
-                    TextField("Add staple (mm)…", text: $newStapleText)
-                        .keyboardType(.numberPad)
-
-                    Button("Add") { addStaple() }
-                        .disabled(!canAddStaple)
-                }
-
-                if stapleMm.isEmpty {
-                    Text("No staple length quick picks.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(stapleMm, id: \.self) { v in
-                        Text("\(v) mm")
-                    }
-                    .onDelete { idx in
-                        stapleMm.remove(atOffsets: idx)
-                        persist()
-                    }
-                    .onMove { from, to in
-                        stapleMm.move(fromOffsets: from, toOffset: to)
-                        persist()
-                    }
-                }
-
-                Text("\(stapleMm.count)/\(maxCount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-            } header: {
-                Text("Staple length quick picks (mm)")
-            } footer: {
-                Text("Up to 10. Use Edit to reorder.")
-            }
-
-            // ----------------------------
-            // User Defined fields (2)
-            // ----------------------------
-            ForEach(Array(customFields.enumerated()), id: \.element.id) { index, def in
-                customFieldSection(index: index, def: def)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .safeAreaPadding(.bottom, 12)
+                .padding(.bottom, 24)
             }
         }
         .navigationTitle("Traits")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
-            }
-        }
         .onAppear {
             seedFromStore()
         }
-        // Keep in sync if store updates externally
         .onReceive(NotificationCenter.default.publisher(for: LocalDataStore.traitsConfigChangedNotification)) { _ in
             seedFromStore()
         }
     }
 
     // =====================================================
-    // MARK: - Sections
+    // MARK: - Header
     // =====================================================
 
-    @ViewBuilder
-    private func customFieldSection(index: Int, def: LocalDataStore.CustomTraitDefinition) -> some View {
-        let title = "User Defined \(index + 1)"
+    private var headerCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Traits")
+                    .font(.title3.weight(.bold))
 
-        Section {
-            // Label
-            TextField("Field label (leave blank to hide)", text: bindingForCustomLabel(id: def.id))
-                .textInputAutocapitalization(.words)
-
-            // Add quick pick row
-            HStack(spacing: 10) {
-                TextField("Add quick pick…", text: bindingForNewCustomPickText(id: def.id))
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-
-                Button("Add") { addCustomPick(fieldID: def.id) }
-                    .disabled(!canAddCustomPick(fieldID: def.id))
-            }
-
-            // List of quick picks
-            if def.quickPicks.isEmpty {
-                Text("No quick picks.")
+                Text("Manage quick picks for Micron, Staple Length, and your two custom trait fields.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-            } else {
-                ForEach(def.quickPicks, id: \.self) { p in
-                    Text(p)
+
+                HStack(spacing: 8) {
+                    miniPill("Micron")
+                    miniPill("Staple")
+                    miniPill("Custom 1")
+                    miniPill("Custom 2")
                 }
-                .onDelete { idx in
-                    deleteCustomPicks(fieldID: def.id, at: idx)
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // =====================================================
+    // MARK: - Cards
+    // =====================================================
+
+    private func quickPickCard<Content: View>(
+        title: String,
+        subtitle: String,
+        placeholder: String,
+        helperText: String,
+        text: Binding<String>,
+        addAction: @escaping () -> Void,
+        canAdd: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader(title: title, subtitle: subtitle)
+
+                HStack(spacing: 10) {
+                    TextField(placeholder, text: text)
+#if os(iOS)
+                        .keyboardType(title == "Micron" ? .decimalPad : .numberPad)
+#endif
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        )
+
+                    Button {
+                        addAction()
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .glassButton(.compact, tint: .blue)
+                    .disabled(!canAdd)
+                    .opacity(canAdd ? 1 : 0.45)
                 }
-                .onMove { from, to in
-                    moveCustomPicks(fieldID: def.id, from: from, to: to)
+
+                content()
+
+                HStack {
+                    Spacer()
+                    Text(helperText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-
-            Text("\(def.quickPicks.count)/\(maxCount)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-        } header: {
-            Text(title)
-        } footer: {
-            Text("These are shown as one-tap chips in Trait Input sessions. If the label is blank, the field can be treated as hidden.")
         }
+    }
+
+    private func customFieldCard(index: Int, def: LocalDataStore.CustomTraitDefinition) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader(
+                    title: "User Defined \(index + 1)",
+                    subtitle: "If the label is blank, this field can be treated as hidden."
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Field Label")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    TextField("Field label (leave blank to hide)", text: bindingForCustomLabel(id: def.id))
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        )
+                }
+
+                HStack(spacing: 10) {
+                    TextField("Add quick pick…", text: bindingForNewCustomPickText(id: def.id))
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        )
+
+                    Button {
+                        addCustomPick(fieldID: def.id)
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .glassButton(.compact, tint: .blue)
+                    .disabled(!canAddCustomPick(fieldID: def.id))
+                    .opacity(canAddCustomPick(fieldID: def.id) ? 1 : 0.45)
+                }
+
+                if def.quickPicks.isEmpty {
+                    emptyInlineState("No quick picks.")
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(Array(def.quickPicks.enumerated()), id: \.offset) { idx, pick in
+                            quickPickRow(
+                                title: pick,
+                                canMoveUp: idx > 0,
+                                canMoveDown: idx < def.quickPicks.count - 1,
+                                onMoveUp: { moveCustomPickUp(fieldID: def.id, at: idx) },
+                                onMoveDown: { moveCustomPickDown(fieldID: def.id, at: idx) },
+                                onDelete: { deleteCustomPick(fieldID: def.id, at: idx) }
+                            )
+                        }
+                    }
+                }
+
+                HStack {
+                    Spacer()
+                    Text("\(def.quickPicks.count)/\(maxCount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func quickPickRow(
+        title: String,
+        canMoveUp: Bool,
+        canMoveDown: Bool,
+        onMoveUp: @escaping () -> Void,
+        onMoveDown: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                rowIconButton(systemName: "arrow.up", enabled: canMoveUp, action: onMoveUp)
+                rowIconButton(systemName: "arrow.down", enabled: canMoveDown, action: onMoveDown)
+                rowIconButton(systemName: "trash", enabled: true, tint: .red, action: onDelete)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func rowIconButton(
+        systemName: String,
+        enabled: Bool,
+        tint: Color = .secondary,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 30, height: 30)
+                .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.45))
+                .background(
+                    Circle().fill(Color.white.opacity(0.06))
+                )
+                .overlay(
+                    Circle().stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+    }
+
+    private func sectionHeader(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func emptyInlineState(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 6)
+    }
+
+    private func miniPill(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
     }
 
     // =====================================================
@@ -187,17 +371,12 @@ struct TraitsQuickPicksSettingsView: View {
         micron = store.traitsConfig.micronQuickPicks
         stapleMm = store.traitsConfig.stapleLengthQuickPicksMm
 
-        // Ensure exactly 2 custom fields with stable ids custom1/custom2
         var fields = store.traitsConfig.customFields
         if fields.count > 2 { fields = Array(fields.prefix(2)) }
 
-        // Build lookup by id if user has edited ids (we normalize to custom1/custom2)
         let existingByID: [String: LocalDataStore.CustomTraitDefinition] = Dictionary(
             uniqueKeysWithValues: fields.map { ($0.id, $0) }
         )
-
-        // NOTE: CustomTraitDefinition init order is:
-        // (id, label, kind, quickPicks)
 
         let c1 = existingByID["custom1"] ?? fields.first ?? .init(
             id: "custom1",
@@ -217,7 +396,6 @@ struct TraitsQuickPicksSettingsView: View {
                 )
             )
 
-        // Force stable ids
         customFields = [
             .init(
                 id: "custom1",
@@ -233,13 +411,11 @@ struct TraitsQuickPicksSettingsView: View {
             )
         ]
 
-        // Seed per-field add text map
         if newCustomPickText["custom1"] == nil { newCustomPickText["custom1"] = "" }
         if newCustomPickText["custom2"] == nil { newCustomPickText["custom2"] = "" }
     }
 
     private func persist() {
-        // Persist all together so sanitize runs once and notifications fire once.
         var cfg = store.traitsConfig
         cfg.micronQuickPicks = micron
         cfg.stapleLengthQuickPicksMm = stapleMm
@@ -266,6 +442,24 @@ struct TraitsQuickPicksSettingsView: View {
         persist()
     }
 
+    private func moveMicronUp(at index: Int) {
+        guard index > 0 else { return }
+        micron.swapAt(index, index - 1)
+        persist()
+    }
+
+    private func moveMicronDown(at index: Int) {
+        guard index < micron.count - 1 else { return }
+        micron.swapAt(index, index + 1)
+        persist()
+    }
+
+    private func deleteMicron(at index: Int) {
+        guard micron.indices.contains(index) else { return }
+        micron.remove(at: index)
+        persist()
+    }
+
     // =====================================================
     // MARK: - Staple helpers
     // =====================================================
@@ -282,6 +476,24 @@ struct TraitsQuickPicksSettingsView: View {
         stapleMm.append(v)
         stapleMm = normalizeIntsLocal(stapleMm, maxCount: maxCount)
         newStapleText = ""
+        persist()
+    }
+
+    private func moveStapleUp(at index: Int) {
+        guard index > 0 else { return }
+        stapleMm.swapAt(index, index - 1)
+        persist()
+    }
+
+    private func moveStapleDown(at index: Int) {
+        guard index < stapleMm.count - 1 else { return }
+        stapleMm.swapAt(index, index + 1)
+        persist()
+    }
+
+    private func deleteStaple(at index: Int) {
+        guard stapleMm.indices.contains(index) else { return }
+        stapleMm.remove(at: index)
         persist()
     }
 
@@ -331,16 +543,26 @@ struct TraitsQuickPicksSettingsView: View {
         persist()
     }
 
-    private func deleteCustomPicks(fieldID: String, at offsets: IndexSet) {
+    private func deleteCustomPick(fieldID: String, at index: Int) {
         updateCustomField(id: fieldID) { def in
-            def.quickPicks.remove(atOffsets: offsets)
+            guard def.quickPicks.indices.contains(index) else { return }
+            def.quickPicks.remove(at: index)
         }
         persist()
     }
 
-    private func moveCustomPicks(fieldID: String, from: IndexSet, to: Int) {
+    private func moveCustomPickUp(fieldID: String, at index: Int) {
         updateCustomField(id: fieldID) { def in
-            def.quickPicks.move(fromOffsets: from, toOffset: to)
+            guard index > 0, def.quickPicks.indices.contains(index) else { return }
+            def.quickPicks.swapAt(index, index - 1)
+        }
+        persist()
+    }
+
+    private func moveCustomPickDown(fieldID: String, at index: Int) {
+        updateCustomField(id: fieldID) { def in
+            guard index < def.quickPicks.count - 1, def.quickPicks.indices.contains(index) else { return }
+            def.quickPicks.swapAt(index, index + 1)
         }
         persist()
     }
@@ -349,7 +571,6 @@ struct TraitsQuickPicksSettingsView: View {
         guard let idx = customFields.firstIndex(where: { $0.id == id }) else { return }
         var def = customFields[idx]
         mutate(&def)
-        // keep ids stable
         def.id = id
         customFields[idx] = def
     }
@@ -379,7 +600,7 @@ struct TraitsQuickPicksSettingsView: View {
     }
 
     // =====================================================
-    // MARK: - Local normalize (UI-level; store will sanitize too)
+    // MARK: - Local normalize
     // =====================================================
 
     private func normalizeDoublesLocal(_ vals: [Double], maxCount: Int) -> [Double] {

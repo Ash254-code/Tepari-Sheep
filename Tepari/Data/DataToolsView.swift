@@ -27,15 +27,13 @@ struct DataToolsView: View {
             }
 
             Section("CSV") {
-                // ✅ Import
                 NavigationLink {
-                    CSVImportView(farmID: selectedFarmID ?? store.farms.first?.id)
+                    CSVImportView()
                 } label: {
                     Label("CSV Import", systemImage: "square.and.arrow.down")
                 }
                 .disabled(store.farms.isEmpty)
 
-                // ✅ Export
                 VStack(alignment: .leading, spacing: 8) {
                     Button {
                         generateExport()
@@ -94,15 +92,8 @@ struct DataToolsView: View {
     }
 }
 
-/// ----------------------------------------------------------------------
-/// Replace this with YOUR existing import view if it has a different name.
-/// If you already have a CSV Import screen, rename this NavigationLink destination
-/// to your real view.
-/// ----------------------------------------------------------------------
 private struct CSVImportView: View {
     @EnvironmentObject private var store: LocalDataStore
-
-    let farmID: UUID?
 
     @State private var text: String = ""
     @State private var status: String = ""
@@ -113,16 +104,24 @@ private struct CSVImportView: View {
                 .frame(minHeight: 220)
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
 
-            Button("Import") {
-                guard let farmID else { status = "No farm selected."; return }
-                let result = store.importAnimalsCSV(farmID: farmID, csvText: text)
-                status = "Imported \(result.imported), skipped \(result.skipped)"
+            Button(action: {
+                let result = store.importAnimalsCSV(csvText: text)
+                status = """
+                Total Animals: \(result.totalAnimals)
+                Animals Imported: \(result.animalsImported)
+                Animals Skipped: \(result.animalsSkipped)
+                Duplicates Skipped: \(result.duplicatesSkipped)
+                Replaced: \(result.animalsReplaced)
+                """
+            }) {
+                Text("Import")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(farmID == nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             if !status.isEmpty {
-                Text(status).foregroundStyle(.secondary)
+                Text(status)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()

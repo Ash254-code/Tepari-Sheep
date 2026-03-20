@@ -233,7 +233,8 @@ final class AppSettings: ObservableObject {
 
         // ✅ User audio (explicit types to avoid Swift ambiguity)
         if let data = ud.data(forKey: Keys.audioClipsJSON) {
-            audioClips = (try? JSONDecoder().decode([UserAudioClip].self, from: data)) ?? []
+            let decoded = (try? JSONDecoder().decode([UserAudioClip].self, from: data)) ?? []
+            audioClips = Self.sortedAudioClips(decoded)
         } else {
             audioClips = []
         }
@@ -467,6 +468,12 @@ final class AppSettings: ObservableObject {
 
     @Published var audioClips: [UserAudioClip] = [] {
         didSet {
+            let sorted = Self.sortedAudioClips(audioClips)
+            if !Self.audioClipArraysMatch(audioClips, sorted) {
+                audioClips = sorted
+                return
+            }
+
             guard !isLoading else { return }
             if let data = try? JSONEncoder().encode(audioClips) {
                 ud.set(data, forKey: Keys.audioClipsJSON)
@@ -586,6 +593,32 @@ final class AppSettings: ObservableObject {
                 }
             }
         }
+    }
+
+    private static func sortedAudioClips(_ clips: [UserAudioClip]) -> [UserAudioClip] {
+        clips.sorted {
+            let lhs = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rhs = $1.name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let primary = lhs.localizedCaseInsensitiveCompare(rhs)
+            if primary != .orderedSame {
+                return primary == .orderedAscending
+            }
+
+            return $0.storedFileName.localizedCaseInsensitiveCompare($1.storedFileName) == .orderedAscending
+        }
+    }
+
+    private static func audioClipArraysMatch(_ lhs: [UserAudioClip], _ rhs: [UserAudioClip]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+
+        for (a, b) in zip(lhs, rhs) {
+            if a.id != b.id { return false }
+            if a.name != b.name { return false }
+            if a.storedFileName != b.storedFileName { return false }
+        }
+
+        return true
     }
 
     // =========================================================

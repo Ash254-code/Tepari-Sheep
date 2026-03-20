@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct AnimalEditorView: View {
-    
+
     @EnvironmentObject private var store: LocalDataStore
     @Environment(\.dismiss) private var dismiss
-    
+
     let farmID: UUID
     let original: LocalDataStore.AnimalProfile
-    
+
     // Editable fields
     @State private var mobID: UUID?
     @State private var lambsPerYear: String = ""
@@ -17,15 +17,15 @@ struct AnimalEditorView: View {
     @State private var comments: String = ""
     @State private var user1: String = ""
     @State private var user2: String = ""
-    
+
     // UX
     @State private var showValidationAlert: Bool = false
     @State private var validationMessage: String = ""
-    
+
     init(farmID: UUID, animal: LocalDataStore.AnimalProfile) {
         self.farmID = farmID
         self.original = animal
-        
+
         _mobID = State(initialValue: animal.mobID)
         _lambsPerYear = State(initialValue: animal.lambsPerYear.map(String.init) ?? "")
         _fleeceWeight = State(initialValue: animal.fleeceWeightKg.map { String($0) } ?? "")
@@ -35,15 +35,15 @@ struct AnimalEditorView: View {
         _user1 = State(initialValue: animal.userField1 ?? "")
         _user2 = State(initialValue: animal.userField2 ?? "")
     }
-    
+
     var body: some View {
         Form {
-            
+
             Section("Animal") {
                 Text(original.eidRaw)
                     .font(.headline)
             }
-            
+
             Section("Mob") {
                 Picker("Mob", selection: $mobID) {
                     Text("None").tag(UUID?.none)
@@ -52,26 +52,42 @@ struct AnimalEditorView: View {
                     }
                 }
             }
-            
+
             Section("Traits") {
-                
+
                 TextField("Lambs \(Calendar.current.component(.year, from: Date()))", text: $lambsPerYear)
                     .keyboardType(.numberPad)
-                
+
                 TextField("Fleece weight (kg)", text: $fleeceWeight)
                     .keyboardType(.decimalPad)
-                
+
                 TextField("Staple length (mm)", text: $stapleLength)
                     .keyboardType(.decimalPad)
-                
+
                 TextField("Class", text: $klass)
             }
-            
+
+            Section("Lambing History") {
+                if lambingHistory.isEmpty {
+                    Text("No lamb records yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(lambingHistory, id: \.id) { item in
+                        HStack {
+                            Text("\(item.year)")
+                            Spacer()
+                            Text("\(item.born)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section("Notes") {
                 TextField("Comments", text: $comments, axis: .vertical)
                     .lineLimit(3...6)
             }
-            
+
             Section("User Fields") {
                 TextField("User field 1", text: $user1)
                 TextField("User field 2", text: $user2)
@@ -104,29 +120,73 @@ struct AnimalEditorView: View {
 }
 
 //
+// MARK: - History
+//
+
+private extension AnimalEditorView {
+
+    struct LambingHistoryRow: Identifiable {
+        let id: UUID
+        let year: Int
+        let born: Int
+    }
+
+    var lambingHistory: [LambingHistoryRow] {
+        store.animalEvents
+            .filter { event in
+                event.kind == .lambing &&
+                event.farmID == farmID &&
+                normalizedEID(event.eidRaw) == normalizedEID(original.eidRaw)
+            }
+            .compactMap { event in
+                let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+
+                guard
+                    let bornString = event.json?["born"],
+                    let born = Int(bornString)
+                else {
+                    return nil
+                }
+
+                return LambingHistoryRow(
+                    id: event.id,
+                    year: year,
+                    born: born
+                )
+            }
+            .sorted { $0.year > $1.year }
+    }
+
+    func normalizedEID(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+    }
+}
+
+//
 // MARK: - Save
 //
 
 private extension AnimalEditorView {
 
     func save() {
-        // Validate numeric inputs if provided (blank = nil)
         guard validateInputs() else { return }
 
-        // ✅ 1) Write the per-year lamb number as a lambing event
         let year = Calendar.current.component(.year, from: Date())
-        if let n = intOrNil(lambsPerYear) {
+        let lambValue = intOrNil(lambsPerYear)
+
+        if let n = lambValue {
             store.addLambingEvent(
                 farmID: farmID,
                 eidRaw: original.eidRaw,
                 year: year,
-                born: n,          // ✅ 0/1/2 for this year
+                born: n,
                 weaned: nil,
                 notes: "Manual edit"
             )
         }
 
-        // ✅ 2) Save the rest of the animal profile fields (but DON’T use lambsPerYear here)
         let updated = LocalDataStore.AnimalProfile(
             id: original.id,
             farmID: farmID,
@@ -134,7 +194,11 @@ private extension AnimalEditorView {
             mobID: mobID,
             sex: original.sex,
             animalClass: original.animalClass,
-            lambsPerYear: original.lambsPerYear,   // ✅ leave as-is (or set nil)
+            breed: original.breed,
+            birthYear: original.birthYear,
+            birthMonth: original.birthMonth,
+            status: original.status,
+            lambsPerYear: lambValue ?? original.lambsPerYear,
             fleeceWeightKg: doubleOrNil(fleeceWeight),
             stapleLengthMm: doubleOrNil(stapleLength),
             klass: emptyNil(klass),
@@ -146,20 +210,16 @@ private extension AnimalEditorView {
         store.upsertAnimal(updated)
         dismiss()
     }
-    // MARK: - Validation
 
     func validateInputs() -> Bool {
-        // Lambs per year
         if let v = intOrNil(lambsPerYear), v < 0 {
             return fail("Lambs per year must be 0 or greater.")
         }
 
-        // Fleece weight (kg)
         if let v = doubleOrNil(fleeceWeight), v < 0 {
             return fail("Fleece weight must be 0 or greater.")
         }
 
-        // Staple length (mm)
         if let v = doubleOrNil(stapleLength), v < 0 {
             return fail("Staple length must be 0 or greater.")
         }
@@ -172,8 +232,6 @@ private extension AnimalEditorView {
         showValidationAlert = true
         return false
     }
-
-    // MARK: - Parsing helpers
 
     func emptyNil(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -190,7 +248,6 @@ private extension AnimalEditorView {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return nil }
 
-        // Accept both "1.2" and "1,2"
         let normalized = t.replacingOccurrences(of: ",", with: ".")
         return Double(normalized)
     }

@@ -36,20 +36,139 @@ struct SessionSetupTreatmentsStepView: View {
     @State private var newProduct: String = ""
     @State private var newDoseValue: String = ""
     @State private var newDoseUnit: DoseUnit = .mL
-    @State private var newDoseBasis: DoseBasis = .perAnimal
+    @State private var newDoseBasis: DoseBasis? = nil
     @State private var newDosePerKg: String = "10"
     @State private var newWithholding: String = ""
 
-    private var canCreateNewTemplate: Bool {
-        let productOK = !newProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let doseOK = !newDoseValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var requiredDetailsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sheetSectionHeader(
+                step: "1",
+                title: "Required details",
+                subtitle: "These fields are needed before you can save the treatment."
+            )
 
-        if newDoseBasis == .perBodyWeight {
-            let per = newDosePerKg.trimmingCharacters(in: .whitespacesAndNewlines)
-            return productOK && doseOK && !per.isEmpty
+            VStack(spacing: 12) {
+                fieldCard(
+                    title: "Product",
+                    required: true,
+                    isValid: productIsValid
+                ) {
+                    TextField("e.g. Cydectin", text: $newProduct)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                }
+
+                fieldCard(
+                    title: "Dose",
+                    required: true,
+                    isValid: doseIsValid
+                ) {
+                    HStack(spacing: 0) {
+                        TextField("e.g. 3.4", text: $newDoseValue)
+    #if os(iOS)
+                            .keyboardType(.numbersAndPunctuation)
+    #endif
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Divider()
+                            .frame(height: 24)
+                            .padding(.horizontal, 10)
+
+                        Picker("Unit", selection: $newDoseUnit) {
+                            ForEach(DoseUnit.allCases, id: \.self) { u in
+                                Text(u.rawValue).tag(u)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(minWidth: 70, alignment: .trailing)
+                    }
+                    .frame(height: 44)
+                }
+            }
         }
+    }
 
-        return productOK && doseOK
+    private var dosingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sheetSectionHeader(
+                step: "2",
+                title: "Dose method",
+                subtitle: "Flat rate Per animal or adjusted by Per bodyweight",
+                isValid: doseBasisIsValid,
+                required: true
+            )
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Dose basis")
+                    .font(.subheadline.weight(.semibold))
+
+                Picker("Dose basis", selection: Binding<DoseBasis?>(
+                    get: { newDoseBasis },
+                    set: { newDoseBasis = $0 }
+                )) {
+                    Text("Per animal").tag(DoseBasis?.some(.perAnimal))
+                    Text("Per body weight").tag(DoseBasis?.some(.perBodyWeight))
+                }
+                .pickerStyle(.segmented)
+                .tint(.blue)
+                .disabled(newDoseValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if newDoseBasis == .perBodyWeight,
+                   !newDoseValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    fieldCard(
+                        title: "Per kg value",
+                        required: true,
+                        isValid: perKgIsValid
+                    ) {
+                        HStack(spacing: 10) {
+                            TextField("10", text: $newDosePerKg)
+    #if os(iOS)
+                                .keyboardType(.numbersAndPunctuation)
+    #endif
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+
+                            Text("kg")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+        }
+    }
+
+    private var withholdingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sheetSectionHeader(
+                step: "3",
+                title: "Withholding",
+                subtitle: "Optional",
+                isValid: !newWithholding.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                required: false
+            )
+
+            fieldCard(
+                title: "Withholding",
+                required: false,
+                isValid: !newWithholding.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ) {
+                TextField("e.g. 14 days meat WHP", text: $newWithholding)
+                    .textInputAutocapitalization(.sentences)
+                    .autocorrectionDisabled()
+            }
+        }
+    }
+    private var canCreateNewTemplate: Bool {
+        productIsValid && doseIsValid && doseBasisIsValid && perKgIsValid
     }
 
     private var selectedTemplates: [TreatmentTemplate] {
@@ -65,6 +184,37 @@ struct SessionSetupTreatmentsStepView: View {
         }
     }
 
+    private var draftSummaryText: String {
+        let product = newProduct.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dose = newDoseValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withholding = newWithholding.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !product.isEmpty || !dose.isEmpty else { return "Fill in the treatment details below." }
+
+        var parts: [String] = []
+
+        if !product.isEmpty {
+            parts.append(product)
+        }
+
+        if !dose.isEmpty, let basis = newDoseBasis {
+            switch basis {
+            case .perAnimal:
+                parts.append("\(dose) \(newDoseUnit.rawValue) per animal")
+            case .perBodyWeight:
+                let per = newDosePerKg.trimmingCharacters(in: .whitespacesAndNewlines)
+                let perText = per.isEmpty ? "10" : per
+                parts.append("\(dose) \(newDoseUnit.rawValue) / \(perText) kg")
+            }
+        }
+
+        if !withholding.isEmpty {
+            parts.append("WHP: \(withholding)")
+        }
+
+        return parts.joined(separator: " • ")
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -75,20 +225,39 @@ struct SessionSetupTreatmentsStepView: View {
         }
         .sheet(isPresented: $showAddNewTreatmentSheet) {
             NavigationStack {
-                addTreatmentSheet
-                    .navigationTitle("Add Treatment")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Cancel") { showAddNewTreatmentSheet = false }
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Add") { addNewTreatmentNow() }
-                                .disabled(!canCreateNewTemplate)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        requiredDetailsSection
+                        dosingSection
+                        withholdingSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationTitle("Add Treatment")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            showAddNewTreatmentSheet = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 30, height: 30)
+                                .background(Color.secondary.opacity(0.15))
+                                .clipShape(Circle())
                         }
                     }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Add") { addNewTreatmentNow() }
+                            .disabled(!canCreateNewTemplate)
+                    }
+                }
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.fraction(0.82), .large])
             .presentationDragIndicator(.visible)
         }
         .onAppear {
@@ -557,39 +726,23 @@ struct SessionSetupTreatmentsStepView: View {
     // MARK: Add Treatment Sheet
     // =========================================================
 
-    private var addTreatmentSheet: some View {
-        Form {
-            Section("Details") {
-                TextField("Product (e.g. Cydectin)", text: $newProduct)
+    private var optionalSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sheetSectionHeader(
+                step: "3",
+                title: "Optional",
+                subtitle: "Add any extra detail you want to save with this treatment."
+            )
 
-                HStack(spacing: 10) {
-                    TextField("Dose (e.g. 3.4)", text: $newDoseValue)
-                        .keyboardType(.numbersAndPunctuation)
-
-                    Picker("Unit", selection: $newDoseUnit) {
-                        ForEach(DoseUnit.allCases, id: \.self) { u in
-                            Text(u.rawValue).tag(u)
-                        }
-                    }
-                }
-
-                Picker("Dose basis", selection: $newDoseBasis) {
-                    ForEach(DoseBasis.allCases, id: \.self) { basis in
-                        Text(basis.label).tag(basis)
-                    }
-                }
-
-                if newDoseBasis == .perBodyWeight {
-                    HStack(spacing: 10) {
-                        TextField("Per kg value", text: $newDosePerKg)
-                            .keyboardType(.numbersAndPunctuation)
-
-                        Text("kg")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                TextField("Withholding (optional)", text: $newWithholding)
+            fieldCard(
+                title: "Withholding",
+                subtitle: "Optional note",
+                required: false,
+                isValid: true
+            ) {
+                TextField("e.g. 14 days meat WHP", text: $newWithholding)
+                    .textInputAutocapitalization(.sentences)
+                    .autocorrectionDisabled()
             }
         }
     }
@@ -602,7 +755,7 @@ struct SessionSetupTreatmentsStepView: View {
             product: newProduct,
             doseValue: newDoseValue,
             doseUnit: newDoseUnit,
-            doseBasis: newDoseBasis,
+            doseBasis: newDoseBasis ?? .perAnimal,
             dosePerKg: newDoseBasis == .perBodyWeight ? newDosePerKg : nil,
             withholding: newWithholding
         )
@@ -624,6 +777,21 @@ struct SessionSetupTreatmentsStepView: View {
         onSelectionChanged()
         showAddNewTreatmentSheet = false
         resetNewTreatmentDraft()
+    }
+    private var productIsValid: Bool {
+        !newProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var doseIsValid: Bool {
+        !newDoseValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var doseBasisIsValid: Bool {
+        newDoseBasis != nil
+    }
+
+    private var perKgIsValid: Bool {
+        newDoseBasis == .perAnimal || !newDosePerKg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // =========================================================
@@ -801,7 +969,7 @@ struct SessionSetupTreatmentsStepView: View {
         newProduct = ""
         newDoseValue = ""
         newDoseUnit = .mL
-        newDoseBasis = .perAnimal
+        newDoseBasis = nil
         newDosePerKg = "10"
         newWithholding = ""
     }
@@ -876,6 +1044,143 @@ struct SessionSetupTreatmentsStepView: View {
         .background(Capsule().fill(Color.blue.opacity(0.16)))
         .overlay(
             Capsule().stroke(Color.blue.opacity(0.28), lineWidth: 1)
+        )
+    }
+
+    private func sheetSectionHeader(
+        step: String,
+        title: String,
+        subtitle: String,
+        isValid: Bool = false,
+        required: Bool = false
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(step)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.accentColor))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.headline)
+
+                    if required {
+                        Text("Required")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(isValid ? .green : .orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill((isValid ? Color.green : Color.orange).opacity(0.12))
+                            )
+                    } else if subtitle == "Optional" {
+                        Text("Optional")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Color.secondary.opacity(0.12))
+                            )
+                    }
+                }
+
+                if subtitle != "Optional" {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if required || subtitle == "Optional" {
+                Image(systemName: isValid ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isValid ? .green : .secondary)
+                    .padding(.top, 1)
+            }
+        }
+    }
+
+    private func fieldCard<Content: View>(
+        title: String,
+        subtitle: String = "",
+        required: Bool,
+        isValid: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                if required {
+                    Text("Required")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(isValid ? .green : .orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill((isValid ? Color.green : Color.orange).opacity(0.12))
+                        )
+                }
+
+                Spacer()
+
+                if required {
+                    Image(systemName: isValid ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isValid ? .green : .secondary)
+                }
+            }
+
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            content()
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                )
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+    }
+
+    private func infoCallout(icon: String, title: String, subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.green)
+                .font(.system(size: 16, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.green.opacity(0.08))
         )
     }
 

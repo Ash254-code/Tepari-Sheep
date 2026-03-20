@@ -308,27 +308,49 @@ struct DraftDashboardView: View {
 
     private var sessionCard: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Draft Dashboard")
-                    .font(.title3.weight(.bold))
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Draft Dashboard")
+                        .font(.title3.weight(.bold))
 
-                Text(sessionName)
-                    .font(.headline)
+                    Text(sessionName)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if activeSessionID != nil {
+                        Text("Live drafting summary from actual session results.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("Start or resume a session to see live draft totals.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                Spacer(minLength: 12)
 
                 if activeSessionID != nil {
-                    Text("Live drafting summary from actual session results.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Start or resume a session to see live draft totals.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        statePill(
+                            text: draftState.setup.isActive ? "Active" : "Inactive",
+                            color: draftState.setup.isActive ? .green : .secondary
+                        )
+
+                        statePill(
+                            text: sessionCoordinator.locked ? "Locked" : "Live",
+                            color: sessionCoordinator.locked ? .blue : .secondary
+                        )
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
         }
+        .frame(maxWidth: .infinity)
     }
-
     private var noSessionCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -345,33 +367,6 @@ struct DraftDashboardView: View {
     private var setupStatusCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Draft Setup")
-                            .font(.headline)
-
-                        Text(draftState.setup.summaryText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 8) {
-                        statePill(
-                            text: draftState.setup.isActive ? "Active" : "Inactive",
-                            color: draftState.setup.isActive ? .green : .secondary
-                        )
-
-                        statePill(
-                            text: sessionCoordinator.locked ? "Locked" : "Live",
-                            color: sessionCoordinator.locked ? .blue : .secondary
-                        )
-                    }
-                }
-
-                Divider().opacity(0.22)
-
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Draft Mode")
                         .font(.subheadline.weight(.semibold))
@@ -444,7 +439,6 @@ struct DraftDashboardView: View {
             .padding(14)
         }
     }
-
     private var overviewCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {

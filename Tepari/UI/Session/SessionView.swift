@@ -40,6 +40,7 @@ struct SessionView: View {
     @State private var showRecentAnimalsFullScreen = false
 
     @AppStorage(kEnableStapleMeasureKey) private var enableStapleMeasure = false
+    @AppStorage("drafter_pause_relay_latched") private var isDraftPaused = false
 
     private let parser = TepariMessageParser()
 
@@ -105,6 +106,7 @@ struct SessionView: View {
         guard sessionCoordinator.hasActiveSession else { return 0 }
         return store.treatments(for: vm.activeSession.id).count
     }
+
     private var hasActiveSession: Bool {
         sessionCoordinator.activeSessionID != nil
     }
@@ -115,6 +117,15 @@ struct SessionView: View {
 
     private var currentSessionHasTreatments: Bool {
         configuredTreatmentCount > 0
+    }
+
+    private var layoutSupportsPauseRelay: Bool {
+        switch layoutKind {
+        case .weighDraft, .scanWeighDraft, .scanWeighTreatDraft, .draftOnly, .scanDraft, .pregTestDraft:
+            return true
+        default:
+            return false
+        }
     }
 
     private var treatmentLibrary: [TreatmentTemplate] {
@@ -225,20 +236,38 @@ struct SessionView: View {
                     )
 
                 case .scanWeighTreatDraft:
-                    SessionLayoutScanWeighTreatDraftView(
-                        vm: vm,
-                        activeTypes: activeTypes,
-                        showWeighMode: $showWeighMode,
-                        showZeroConfirmation: $showZeroConfirmation,
-                        showDetails: $showDetails,
-                        isPhone: isPhone,
-                        isTCPConnected: isTCPConnected,
-                        scannedCount: scannedCount,
-                        onStartNewSession: { startNewSession() },
-                        onSyncCoordinator: { syncCoordinator() },
-                        onOpenTreatments: { showTreatmentsEditor = true },
-                        onGoToDraftTab: { onGoToDraftTab() }
-                    )
+                    if let draftEngine = vm.draftEngine {
+                        SessionLayoutScanWeighTreatDraftView(
+                            vm: vm,
+                            activeTypes: activeTypes,
+                            showWeighMode: $showWeighMode,
+                            showZeroConfirmation: $showZeroConfirmation,
+                            showDetails: $showDetails,
+                            isPhone: isPhone,
+                            isTCPConnected: isTCPConnected,
+                            scannedCount: scannedCount,
+                            onStartNewSession: { startNewSession() },
+                            onSyncCoordinator: { syncCoordinator() },
+                            onOpenTreatments: { showTreatmentsEditor = true },
+                            onGoToDraftTab: { onGoToDraftTab() }
+                        )
+                        .environmentObject(draftEngine)
+                    } else {
+                        SessionLayoutScanWeighTreatDraftView(
+                            vm: vm,
+                            activeTypes: activeTypes,
+                            showWeighMode: $showWeighMode,
+                            showZeroConfirmation: $showZeroConfirmation,
+                            showDetails: $showDetails,
+                            isPhone: isPhone,
+                            isTCPConnected: isTCPConnected,
+                            scannedCount: scannedCount,
+                            onStartNewSession: { startNewSession() },
+                            onSyncCoordinator: { syncCoordinator() },
+                            onOpenTreatments: { showTreatmentsEditor = true },
+                            onGoToDraftTab: { onGoToDraftTab() }
+                        )
+                    }
 
                 case .draftOnly:
                     SessionLayoutWeighDraftView(
@@ -547,6 +576,9 @@ struct SessionView: View {
             .onChange(of: draftSettings.gateMap) { _, newMap in
                 vm.draftEngine?.gateMap = newMap
             }
+            .onChange(of: isDraftPaused) { _, _ in
+                updateDockState()
+            }
             .alert("Duplicate EID Detected", isPresented: $vm.showDuplicatePrompt) {
                 Button("Overwrite") { vm.confirmOverwriteDuplicate() }
                 Button("Cancel", role: .cancel) { vm.cancelDuplicateFlow() }
@@ -669,6 +701,14 @@ struct SessionView: View {
         }
     }
 
+    private func toggleDraftPause() {
+        guard layoutSupportsPauseRelay else { return }
+
+        isDraftPaused.toggle()
+        DraftWifiController.setPauseRelay(paused: isDraftPaused)
+        updateDockState()
+    }
+
     private func configureDockIfNeeded() {
         let model = activeDockModel
         model.resetDefaults()
@@ -687,19 +727,23 @@ struct SessionView: View {
         model.setEnabled(.newSession, true)
         model.setTitle(.newSession, "New Session")
         model.setSystemImage(.newSession, "plus.circle.fill")
+        model.setActive(.newSession, false)
 
         model.setEnabled(.display, hasActiveSession)
         model.setTitle(.display, "Display")
         model.setSystemImage(.display, "list.bullet.rectangle")
+        model.setActive(.display, false)
 
         guard hasActiveSession else {
             model.setTitle(.treat, "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, false)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "ReWeigh")
             model.setSystemImage(.undo, "arrow.clockwise")
             model.setEnabled(.undo, false)
+            model.setActive(.undo, false)
             return
         }
 
@@ -709,109 +753,133 @@ struct SessionView: View {
             model.setTitle(.treat, "Reweigh")
             model.setSystemImage(.treat, "arrow.clockwise")
             model.setEnabled(.treat, canReweigh)
+            model.setActive(.treat, false)
 
-            model.setTitle(.undo, "ReWeigh")
-            model.setSystemImage(.undo, "arrow.clockwise")
-            model.setEnabled(.undo, canReweigh)
+            model.setTitle(.undo, "Pause")
+            model.setSystemImage(.undo, "pause.circle.fill")
+            model.setEnabled(.undo, true)
+            model.setActive(.undo, isDraftPaused)
 
         case .lambMarking, .lambMarkingTreatTrait:
             model.setTitle(.treat, "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, currentSessionHasTreatments)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "History")
             model.setSystemImage(.undo, "clock.arrow.circlepath")
             model.setEnabled(.undo, !sessionsSortedNewestFirst.isEmpty)
+            model.setActive(.undo, false)
 
         case .scanWeigh:
             model.setTitle(.treat, "Weights")
             model.setSystemImage(.treat, "scalemass.fill")
             model.setEnabled(.treat, false)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "ReWeigh")
             model.setSystemImage(.undo, "arrow.clockwise")
             model.setEnabled(.undo, canReweigh)
+            model.setActive(.undo, false)
 
         case .scanWeighTreat:
             model.setTitle(.treat, currentSessionHasTreatments ? "Treatments (\(configuredTreatmentCount))" : "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, true)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "ReWeigh")
             model.setSystemImage(.undo, "arrow.clockwise")
             model.setEnabled(.undo, canReweigh)
+            model.setActive(.undo, false)
 
         case .scanWeighTreatDraft:
             model.setTitle(.treat, "Reweigh")
             model.setSystemImage(.treat, "arrow.clockwise")
             model.setEnabled(.treat, canReweigh)
+            model.setActive(.treat, false)
 
-            model.setTitle(.undo, currentSessionHasTreatments ? "Treatments (\(configuredTreatmentCount))" : "Treatments")
-            model.setSystemImage(.undo, "cross.case.fill")
+            model.setTitle(.undo, "Pause")
+            model.setSystemImage(.undo, "pause.circle.fill")
             model.setEnabled(.undo, true)
+            model.setActive(.undo, isDraftPaused)
 
         case .draftOnly, .scanDraft:
             model.setTitle(.treat, "Draft")
             model.setSystemImage(.treat, "arrow.triangle.branch")
             model.setEnabled(.treat, true)
+            model.setActive(.treat, false)
 
-            model.setTitle(.undo, "History")
-            model.setSystemImage(.undo, "clock.arrow.circlepath")
-            model.setEnabled(.undo, !sessionsSortedNewestFirst.isEmpty)
+            model.setTitle(.undo, "Pause")
+            model.setSystemImage(.undo, "pause.circle.fill")
+            model.setEnabled(.undo, true)
+            model.setActive(.undo, isDraftPaused)
 
         case .scanTreat, .treatOnly:
             model.setTitle(.treat, currentSessionHasTreatments ? "Treatments (\(configuredTreatmentCount))" : "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, true)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "History")
             model.setSystemImage(.undo, "clock.arrow.circlepath")
             model.setEnabled(.undo, !sessionsSortedNewestFirst.isEmpty)
+            model.setActive(.undo, false)
 
         case .scanTraits:
             model.setTitle(.treat, "Traits")
             model.setSystemImage(.treat, "slider.horizontal.3")
             model.setEnabled(.treat, false)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "History")
             model.setSystemImage(.undo, "clock.arrow.circlepath")
             model.setEnabled(.undo, !sessionsSortedNewestFirst.isEmpty)
+            model.setActive(.undo, false)
 
         case .scanOnly:
             model.setTitle(.treat, "Scanner")
             model.setSystemImage(.treat, "qrcode.viewfinder")
             model.setEnabled(.treat, false)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "History")
             model.setSystemImage(.undo, "clock.arrow.circlepath")
             model.setEnabled(.undo, !sessionsSortedNewestFirst.isEmpty)
+            model.setActive(.undo, false)
 
         case .transferSaleForm:
             model.setTitle(.treat, "History")
             model.setSystemImage(.treat, "clock.arrow.circlepath")
             model.setEnabled(.treat, !sessionsSortedNewestFirst.isEmpty)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "Resume")
             model.setSystemImage(.undo, "arrow.uturn.backward.circle")
             model.setEnabled(.undo, false)
+            model.setActive(.undo, false)
 
         case .pregTestDraft:
             model.setTitle(.treat, currentSessionHasTreatments ? "Treatments (\(configuredTreatmentCount))" : "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, true)
+            model.setActive(.treat, false)
 
-            model.setTitle(.undo, "Draft")
-            model.setSystemImage(.undo, "arrow.triangle.branch")
+            model.setTitle(.undo, "Pause")
+            model.setSystemImage(.undo, "pause.circle.fill")
             model.setEnabled(.undo, true)
+            model.setActive(.undo, isDraftPaused)
 
         case .fleeceWeigh:
             model.setTitle(.treat, currentSessionHasTreatments ? "Treatments (\(configuredTreatmentCount))" : "Treatments")
             model.setSystemImage(.treat, "cross.case.fill")
             model.setEnabled(.treat, true)
+            model.setActive(.treat, false)
 
             model.setTitle(.undo, "ReWeigh")
             model.setSystemImage(.undo, "arrow.clockwise")
             model.setEnabled(.undo, canReweigh)
+            model.setActive(.undo, false)
         }
     }
 
@@ -847,19 +915,16 @@ struct SessionView: View {
         guard hasActiveSession else { return }
 
         switch layoutKind {
-        case .weighDraft, .fleeceWeigh, .scanWeigh, .scanWeighTreat, .scanWeighDraft:
+        case .weighDraft, .scanWeighDraft, .scanWeighTreatDraft, .draftOnly, .scanDraft, .pregTestDraft:
+            toggleDraftPause()
+
+        case .fleeceWeigh, .scanWeigh, .scanWeighTreat:
             guard canReweigh else { return }
             vm.reweigh()
             syncCoordinator()
 
-        case .scanWeighTreatDraft:
-            showTreatmentsEditor = true
-
-        case .draftOnly, .scanDraft, .scanTreat, .treatOnly, .scanTraits, .scanOnly, .lambMarking, .lambMarkingTreatTrait:
+        case .scanTreat, .treatOnly, .scanTraits, .scanOnly, .lambMarking, .lambMarkingTreatTrait:
             showHistory = true
-
-        case .pregTestDraft:
-            onGoToDraftTab()
 
         case .transferSaleForm:
             break
@@ -1039,7 +1104,7 @@ struct SessionView: View {
 
         return (trimmed, fallbackUnit)
     }
-    
+
     private func inferredTypes(from cfg: Any?) -> Set<SetupSessionType> {
         guard let cfg else { return [] }
 
@@ -1083,6 +1148,7 @@ struct SessionView: View {
 
         return types
     }
+
     private func syncCoordinator() {
         sessionCoordinator.push(
             eid: vm.currentEID,
@@ -1091,6 +1157,7 @@ struct SessionView: View {
             locked: vm.isLocked
         )
     }
+
     private func reflectedBool(_ value: Any, keys: [String]) -> Bool? {
         let mirror = Mirror(reflecting: value)
 
@@ -1142,6 +1209,7 @@ struct SessionView: View {
         guard mirror.displayStyle == .optional else { return any }
         return mirror.children.first?.value
     }
+
     private func promptRestart(_ session: Session) {
         sessionToRestart = session
         showRestartAlert = true

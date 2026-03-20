@@ -6,10 +6,6 @@ struct SessionLandingCardView: View {
     let onContinueRecent: (() -> Void)?
     let onStartNew: () -> Void
 
-    var scannerConnected: Bool? = nil
-    var scalesConnected: Bool? = nil
-    var draftConnected: Bool? = nil
-
     var minCardHeight: CGFloat = 420
 
     var body: some View {
@@ -19,9 +15,7 @@ struct SessionLandingCardView: View {
             let topPadding: CGFloat = isLandscape ? 14 : 18
             let heroSize: CGFloat = isLandscape ? 154 : 175
             let buttonVerticalPadding: CGFloat = isLandscape ? 14 : 16
-            let bottomPillsPadding: CGFloat = isLandscape ? 18 : 14
             let interBlockGap: CGFloat = isLandscape ? 18 : 26
-            let bottomSpacerMin: CGFloat = isLandscape ? 10 : 18
             let effectiveMinHeight = max(minCardHeight, isLandscape ? 380 : minCardHeight)
 
             VStack(spacing: 0) {
@@ -60,7 +54,9 @@ struct SessionLandingCardView: View {
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, buttonVerticalPadding)
+                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     }
+                    .frame(maxWidth: .infinity)
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -71,26 +67,15 @@ struct SessionLandingCardView: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, buttonVerticalPadding)
+                                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         }
+                        .frame(maxWidth: .infinity)
                         .buttonStyle(.borderedProminent)
                         .tint(.blue.opacity(0.35))
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     }
                 }
                 .padding(.horizontal, 10)
-
-                Spacer(minLength: bottomSpacerMin)
-
-                if scannerConnected != nil || scalesConnected != nil || draftConnected != nil {
-                    HStack(spacing: 10) {
-                        if let v = scannerConnected { StatusPill(title: "Scanner", ok: v) }
-                        if let v = scalesConnected { StatusPill(title: "Scale", ok: v) }
-                        if let v = draftConnected { StatusPill(title: "Draft", ok: v) }
-                    }
-                    .padding(.bottom, bottomPillsPadding)
-                } else {
-                    Spacer().frame(height: bottomPillsPadding)
-                }
             }
             .frame(maxWidth: .infinity, minHeight: effectiveMinHeight, alignment: .top)
             .padding(cardPadding)
@@ -163,29 +148,5 @@ struct SessionLandingCardView: View {
         onContinueRecent == nil
         ? "Start a new session to begin recording."
         : "Start a new session, or resume the last one."
-    }
-}
-
-private struct StatusPill: View {
-    let title: String
-    let ok: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(ok ? Color.green : Color.red)
-                .frame(width: 8, height: 8)
-
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(.thinMaterial)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-        )
     }
 }

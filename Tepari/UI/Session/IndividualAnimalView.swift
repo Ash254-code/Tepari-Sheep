@@ -22,6 +22,7 @@ struct IndividualAnimalView: View {
     @State private var showAllWeights: Bool = false
     @State private var showAllTreatments: Bool = false
     @State private var showAllPregTests: Bool = false
+    @State private var showAllLambing: Bool = false
 
     private let pagePadding: CGFloat = 14
     private let sectionSpacing: CGFloat = 14
@@ -69,8 +70,16 @@ struct IndividualAnimalView: View {
         return "—"
     }
 
-    private var latestPregValue: String {
-        guard let latest = pregHistory.first else { return "—" }
+    private var totalLambsValue: String {
+        let total = store.totalLambsForAnimal(
+            farmID: preferredFarmID,
+            eidRaw: displayEID
+        )
+        return "\(total)"
+    }
+
+    private var latestLambingValue: String {
+        guard let latest = lambingHistory.first else { return "—" }
         return latest.summary
     }
 
@@ -131,7 +140,7 @@ struct IndividualAnimalView: View {
         return store.animalEvents
             .filter { event in
                 event.kind == .treatment &&
-                event.eidRaw == eid &&
+                EIDValidator.cleanedRaw(event.eidRaw) == eid &&
                 (preferredFarmID == nil || event.farmID == preferredFarmID)
             }
             .sorted { $0.date > $1.date }
@@ -151,7 +160,7 @@ struct IndividualAnimalView: View {
         return store.animalEvents
             .filter { event in
                 event.kind == .pregnancy &&
-                event.eidRaw == eid &&
+                EIDValidator.cleanedRaw(event.eidRaw) == eid &&
                 (preferredFarmID == nil || event.farmID == preferredFarmID)
             }
             .sorted { $0.date > $1.date }
@@ -165,6 +174,30 @@ struct IndividualAnimalView: View {
             }
     }
 
+    private var lambingHistory: [LambingHistoryRow] {
+        guard let farmID = preferredFarmID else { return [] }
+
+        return store.lambingEventsForAnimal(farmID: farmID, eidRaw: displayEID)
+            .map { event in
+                let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+                let born = event.json?["born"].flatMap(Int.init)
+                let weaned = event.json?["weaned"].flatMap(Int.init)
+                let notes = event.json?["notes"]
+
+                return LambingHistoryRow(
+                    date: event.date,
+                    year: year,
+                    born: born,
+                    weaned: weaned,
+                    notes: notes
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.year != rhs.year { return lhs.year > rhs.year }
+                return lhs.date > rhs.date
+            }
+    }
+
     private var latestTraitRow: TraitHistoryRow? {
         let eid = displayEID
         guard !eid.isEmpty, eid != "—" else { return nil }
@@ -172,7 +205,7 @@ struct IndividualAnimalView: View {
         return store.animalEvents
             .filter { event in
                 event.kind == .traits &&
-                event.eidRaw == eid &&
+                EIDValidator.cleanedRaw(event.eidRaw) == eid &&
                 (preferredFarmID == nil || event.farmID == preferredFarmID)
             }
             .sorted { $0.date > $1.date }
@@ -260,9 +293,15 @@ struct IndividualAnimalView: View {
             .toolbar {
                 if coordinator.showIndividualAnimalView {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Close") {
+                        Button {
                             coordinator.closeIndividualAnimal()
                             dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 30, height: 30)
+                                .background(Color.secondary.opacity(0.15))
+                                .clipShape(Circle())
                         }
                     }
                 }
@@ -295,6 +334,7 @@ struct IndividualAnimalView: View {
             identityGlass
             latestSnapshotGlass
             detailsGlass
+            lambingHistoryGlass
             weightTrendGlass
             weightHistoryGlass
             treatmentHistoryGlass
@@ -310,6 +350,7 @@ struct IndividualAnimalView: View {
                 VStack(alignment: .leading, spacing: sectionSpacing) {
                     latestSnapshotGlass
                     detailsGlass
+                    lambingHistoryGlass
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
 
@@ -362,7 +403,10 @@ struct IndividualAnimalView: View {
                         snapshotValueCard(title: "Fleece", value: latestFleeceValue, icon: "tshirt")
                     }
 
-                    snapshotWideValueCard(title: "Preg Test", value: latestPregValue, icon: "checklist")
+                    HStack(spacing: 10) {
+                        snapshotValueCard(title: "Total Lambs", value: totalLambsValue, icon: "sum")
+                        snapshotValueCard(title: "Lambing", value: latestLambingValue, icon: "hare.fill")
+                    }
                 }
             }
         }
@@ -400,38 +444,6 @@ struct IndividualAnimalView: View {
                 .stroke(glassFieldStroke, lineWidth: 1)
         )
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func snapshotWideValueCard(title: String, value: String, icon: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(glassFieldFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(glassFieldStroke, lineWidth: 1)
-        )
     }
 
     // =====================================================
@@ -613,6 +625,90 @@ struct IndividualAnimalView: View {
                 .padding(.vertical, 1)
             }
         }
+    }
+
+    // =====================================================
+    // MARK: - Lambing History
+    // =====================================================
+
+    private var visibleLambing: [LambingHistoryRow] {
+        showAllLambing ? lambingHistory : Array(lambingHistory.prefix(5))
+    }
+
+    private var lambingHistoryGlass: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 10) {
+                cardHeader(
+                    title: "Lambing History",
+                    count: lambingHistory.count,
+                    expandTitle: showAllLambing ? "Collapse" : "Show all"
+                ) {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        showAllLambing.toggle()
+                    }
+                }
+
+                Divider().opacity(0.10)
+
+                if lambingHistory.isEmpty {
+                    Text("No lambing records yet for this animal.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else if showAllLambing {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(visibleLambing) { row in
+                                lambingRow(row)
+
+                                if row.id != visibleLambing.last?.id {
+                                    Divider().opacity(0.08)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(visibleLambing) { row in
+                            lambingRow(row)
+
+                            if row.id != visibleLambing.last?.id {
+                                Divider().opacity(0.08)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func lambingRow(_ row: LambingHistoryRow) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.summary)
+                    .font(.subheadline.weight(.semibold))
+
+                if let notes = row.notes?.trimmedOrNil {
+                    Text(notes)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(String(row.year))
+                    .font(.subheadline.weight(.semibold))
+
+                Text(row.date, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 10)
     }
 
     // =====================================================
@@ -809,7 +905,7 @@ struct IndividualAnimalView: View {
                     .font(.subheadline.weight(.semibold))
 
                 if let subtitle = row.subtitle, !subtitle.isEmpty {
-                    Text(row.subtitle!)
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1328,6 +1424,33 @@ struct IndividualAnimalView: View {
                 return "\(cleanStatus) - \(fetusCount)"
             }
             return cleanStatus
+        }
+    }
+
+    private struct LambingHistoryRow: Identifiable {
+        let id = UUID()
+        let date: Date
+        let year: Int
+        let born: Int?
+        let weaned: Int?
+        let notes: String?
+
+        var summary: String {
+            var parts: [String] = []
+
+            if let born {
+                parts.append("Born \(born)")
+            }
+
+            if let weaned {
+                parts.append("Weaned \(weaned)")
+            }
+
+            if parts.isEmpty {
+                return "\(year) - No values"
+            }
+
+            return "\(year) - " + parts.joined(separator: " · ")
         }
     }
 }

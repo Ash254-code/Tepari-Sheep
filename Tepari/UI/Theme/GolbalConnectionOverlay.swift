@@ -39,10 +39,9 @@ func connectionPillUsage(for activeTypes: Set<SetupSessionType>) -> (h: Bool, d:
     // Dosing gun
     let g = activeTypes.contains(.treatment) || activeTypes.contains(.lambMarking)
 
-    // Readers are NOT forced active just because Scan exists.
-    // They stay grey until the hardware connects.
-    let s = false
-    let x = false
+    // Readers should be visible when scan-related workflows are active.
+    let s = activeTypes.contains(.scan)
+    let x = activeTypes.contains(.scan)
 
     return (h: h, d: d, s: s, x: x, g: g)
 }

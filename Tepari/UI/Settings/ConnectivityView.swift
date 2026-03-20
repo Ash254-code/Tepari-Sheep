@@ -549,6 +549,7 @@ struct RacewellConnectivityView: View {
 
     private let gateColumns = [
         GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
 
@@ -598,7 +599,11 @@ struct RacewellConnectivityView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(racewell.state == .connected || racewell.state == .connecting || racewell.state == .reconnecting)
+                        .disabled(
+                            racewell.state == .connected ||
+                            racewell.state == .connecting ||
+                            racewell.state == .reconnecting
+                        )
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
 
@@ -612,35 +617,105 @@ struct RacewellConnectivityView: View {
 
                 Section("Gate Test") {
                     LazyVGrid(columns: gateColumns, spacing: 12) {
-                        gateButton(1)
-                        gateButton(2)
-                        gateButton(3)
-                        gateButton(4)
+                        gateButton(
+                            title: "Left",
+                            systemImage: "arrowshape.left.fill",
+                            tint: .blue
+                        ) {
+                            racewell.leftGate()
+                        }
+
+                        gateButton(
+                            title: "Centre",
+                            systemImage: "minus.rectangle.fill",
+                            tint: .indigo
+                        ) {
+                            racewell.centreGate()
+                        }
+
+                        gateButton(
+                            title: "Right",
+                            systemImage: "arrowshape.right.fill",
+                            tint: .blue
+                        ) {
+                            racewell.rightGate()
+                        }
                     }
                     .padding(.vertical, 4)
 
-                    Text("Only one gate should stay active at a time. Selecting another gate closes the previous gate and opens the new one.")
+                    Text("Left turns relay 1 on. Right turns relay 2 on. Centre turns relay 1 and 2 off.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Catch Control") {
+                Section("Catch / Release") {
+                    HStack(spacing: 12) {
+                        actionButton(
+                            title: "Catch",
+                            systemImage: "lock.fill",
+                            tint: .green
+                        ) {
+                            racewell.catchPulse()
+                        }
+
+                        actionButton(
+                            title: "Release",
+                            systemImage: "lock.open.fill",
+                            tint: .orange
+                        ) {
+                            racewell.releasePulse()
+                        }
+                    }
+
+                    Text("Catch and Release pulse for 3 seconds.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Tilt Control") {
+                    HStack(spacing: 12) {
+                        MomentaryPressButton(
+                            title: "Tilt Up",
+                            systemImage: "arrow.up",
+                            tint: .teal,
+                            onPress: { racewell.tiltUpOn() },
+                            onRelease: { racewell.tiltUpOff() }
+                        )
+
+                        MomentaryPressButton(
+                            title: "Tilt Down",
+                            systemImage: "arrow.down",
+                            tint: .teal,
+                            onPress: { racewell.tiltDownOn() },
+                            onRelease: { racewell.tiltDownOff() }
+                        )
+                    }
+
+                    Text("Tilt controls are active only while your finger is pressing the button.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Pause") {
                     Button {
-                        racewell.catchOn()
+                        racewell.togglePause()
                     } label: {
-                        Label("Catch", systemImage: "lock.fill")
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                        Label(
+                            racewell.pauseIsOn ? "Pause On" : "Pause Off",
+                            systemImage: racewell.pauseIsOn ? "pause.circle.fill" : "pause.circle"
+                        )
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 56)
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(racewell.pauseIsOn ? .red : .purple)
 
-                    Button {
-                        racewell.releaseCatch()
-                    } label: {
-                        Label("Release", systemImage: "lock.open.fill")
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                    }
-                    .buttonStyle(.bordered)
+                    Text("Pause is a latching toggle on relay 7.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
+                Section("Safety") {
                     Button(role: .destructive) {
                         racewell.allOff()
                     } label: {
@@ -660,11 +735,13 @@ struct RacewellConnectivityView: View {
                                 Text(entry.timestamp, style: .time)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+
                                 Text(entry.message)
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.primary)
                                     .textSelection(.enabled)
                             }
+
                             Divider().opacity(0.2)
                         }
                     }
@@ -704,16 +781,83 @@ struct RacewellConnectivityView: View {
     }
 
     @ViewBuilder
-    private func gateButton(_ gate: Int) -> some View {
-        Button {
-            racewell.testGate(gate)
-        } label: {
-            Text("Gate \(gate)")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .frame(height: 72)
+    private func gateButton(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+
+                Text(title)
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
         }
         .buttonStyle(.borderedProminent)
+        .tint(tint)
+    }
+
+    @ViewBuilder
+    private func actionButton(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 56)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(tint)
+    }
+}
+
+private struct MomentaryPressButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let onPress: () -> Void
+    let onRelease: () -> Void
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isPressed ? tint.opacity(0.95) : tint.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isPressed ? tint : tint.opacity(0.35), lineWidth: 1)
+            )
+            .foregroundStyle(isPressed ? .white : tint)
+            .scaleEffect(isPressed ? 0.98 : 1.0)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !isPressed {
+                            isPressed = true
+                            onPress()
+                        }
+                    }
+                    .onEnded { _ in
+                        if isPressed {
+                            isPressed = false
+                            onRelease()
+                        }
+                    }
+            )
     }
 }
 

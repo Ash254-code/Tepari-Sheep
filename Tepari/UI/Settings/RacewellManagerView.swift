@@ -9,6 +9,7 @@ final class RacewellManager: ObservableObject {
     // -------------------------------------------------
 
     @Published var state: ConnectionState = .disconnected
+    @Published var pauseIsOn: Bool = false
 
     // -------------------------------------------------
     // MARK: Log
@@ -61,7 +62,6 @@ final class RacewellManager: ObservableObject {
         let discovered = DraftWifiController.hasDiscoveredDrafter()
 
         switch state {
-
         case .connecting:
             if discovered {
                 state = .connected
@@ -112,6 +112,36 @@ final class RacewellManager: ObservableObject {
         }
     }
 
+    private func ensureConnectedForAction(_ message: String) -> Bool {
+        guard DraftWifiController.hasDiscoveredDrafter() else {
+            flashDisconnectedError(message)
+            return false
+        }
+
+        if state != .connected {
+            state = .connected
+        }
+
+        return true
+    }
+
+    private func pulseRelay(_ relay: Int, for seconds: Double, label: String) {
+        guard ensureConnectedForAction("\(label) pressed while disconnected") else { return }
+
+        append("[TX] \(label) ON")
+        DraftWifiController.holdGate(relay)
+        append("[INFO] Relay \(relay) ON for \(seconds.cleanText)s")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            DraftWifiController.releaseGate(relay)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            self?.append("[TX] \(label) OFF")
+            self?.append("[INFO] Relay \(relay) released")
+        }
+    }
+
     // -------------------------------------------------
     // MARK: Public API
     // -------------------------------------------------
@@ -143,68 +173,119 @@ final class RacewellManager: ObservableObject {
         append("[STATE] Disconnected")
     }
 
-    func testGate(_ gate: Int) {
-        guard (1...4).contains(gate) else {
-            append("[WARN] Invalid gate \(gate)")
-            return
-        }
+    // -------------------------------------------------
+    // MARK: Gates
+    // -------------------------------------------------
 
-        guard DraftWifiController.hasDiscoveredDrafter() else {
-            flashDisconnectedError("Gate \(gate) pressed while disconnected")
-            return
-        }
+    func leftGate() {
+        guard ensureConnectedForAction("Left gate pressed while disconnected") else { return }
 
-        if state != .connected {
-            state = .connected
-        }
+        DraftWifiController.releaseGate(2)
+        DraftWifiController.holdGate(1)
 
-        append("[TX] Gate \(gate)")
-        DraftWifiController.holdGate(gate)
-        append("[INFO] Sent WiFi gate \(gate)")
+        append("[TX] Left Gate")
+        append("[INFO] Relay 1 latched ON, Relay 2 OFF")
     }
 
-    func catchOn() {
-        guard DraftWifiController.hasDiscoveredDrafter() else {
-            flashDisconnectedError("Catch pressed while disconnected")
-            return
-        }
+    func centreGate() {
+        guard ensureConnectedForAction("Centre gate pressed while disconnected") else { return }
 
-        if state != .connected {
-            state = .connected
-        }
+        DraftWifiController.releaseGate(1)
+        DraftWifiController.releaseGate(2)
 
-        append("[TX] Catch")
+        append("[TX] Centre Gate")
+        append("[INFO] Relay 1 and Relay 2 OFF")
+    }
+
+    func rightGate() {
+        guard ensureConnectedForAction("Right gate pressed while disconnected") else { return }
+
+        DraftWifiController.releaseGate(1)
+        DraftWifiController.holdGate(2)
+
+        append("[TX] Right Gate")
+        append("[INFO] Relay 2 latched ON, Relay 1 OFF")
+    }
+
+    // -------------------------------------------------
+    // MARK: Catch / Release
+    // -------------------------------------------------
+
+    func catchPulse() {
+        pulseRelay(3, for: 3.0, label: "Catch")
+    }
+
+    func releasePulse() {
+        pulseRelay(4, for: 3.0, label: "Release")
+    }
+
+    // -------------------------------------------------
+    // MARK: Tilt
+    // -------------------------------------------------
+
+    func tiltUpOn() {
+        guard ensureConnectedForAction("Tilt Up pressed while disconnected") else { return }
+
         DraftWifiController.holdGate(5)
-        append("[INFO] Sent WiFi catch")
+        append("[TX] Tilt Up ON")
+        append("[INFO] Relay 5 ON")
     }
 
-    func releaseCatch() {
-        guard DraftWifiController.hasDiscoveredDrafter() else {
-            flashDisconnectedError("Release pressed while disconnected")
-            return
-        }
+    func tiltUpOff() {
+        guard DraftWifiController.hasDiscoveredDrafter() else { return }
 
-        if state != .connected {
-            state = .connected
-        }
-
-        append("[TX] Release")
         DraftWifiController.releaseGate(5)
-        append("[INFO] Sent WiFi release")
+        append("[TX] Tilt Up OFF")
+        append("[INFO] Relay 5 OFF")
     }
+
+    func tiltDownOn() {
+        guard ensureConnectedForAction("Tilt Down pressed while disconnected") else { return }
+
+        DraftWifiController.holdGate(6)
+        append("[TX] Tilt Down ON")
+        append("[INFO] Relay 6 ON")
+    }
+
+    func tiltDownOff() {
+        guard DraftWifiController.hasDiscoveredDrafter() else { return }
+
+        DraftWifiController.releaseGate(6)
+        append("[TX] Tilt Down OFF")
+        append("[INFO] Relay 6 OFF")
+    }
+
+    // -------------------------------------------------
+    // MARK: Pause
+    // -------------------------------------------------
+
+    func togglePause() {
+        guard ensureConnectedForAction("Pause pressed while disconnected") else { return }
+
+        pauseIsOn.toggle()
+
+        if pauseIsOn {
+            DraftWifiController.holdGate(7)
+            append("[TX] Pause ON")
+            append("[INFO] Relay 7 latched ON")
+        } else {
+            DraftWifiController.releaseGate(7)
+            append("[TX] Pause OFF")
+            append("[INFO] Relay 7 OFF")
+        }
+    }
+
+    // -------------------------------------------------
+    // MARK: Misc
+    // -------------------------------------------------
 
     func allOff() {
-        guard DraftWifiController.hasDiscoveredDrafter() else {
-            flashDisconnectedError("All Off pressed while disconnected")
-            return
-        }
+        guard ensureConnectedForAction("All Off pressed while disconnected") else { return }
 
-        if state != .connected {
-            state = .connected
-        }
+        pauseIsOn = false
+        DraftWifiController.releaseAllGates()
 
         append("[TX] All Off")
-        DraftWifiController.releaseAllGates()
         append("[INFO] Sent WiFi all off")
     }
 
@@ -217,5 +298,17 @@ final class RacewellManager: ObservableObject {
     func clearLog() {
         log.removeAll()
         append("[INFO] Log cleared")
+    }
+}
+
+private extension Double {
+    var cleanText: String {
+        if truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", self)
+        } else if (self * 10).truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.1f", self)
+        } else {
+            return String(format: "%.2f", self)
+        }
     }
 }

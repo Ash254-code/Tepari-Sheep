@@ -92,7 +92,6 @@ struct SessionSetupMobStepView: View {
                 id: SessionSetupMobStepView.mixedSentinel,
                 title: "Mixed",
                 systemImage: "shuffle",
-                subtitle: "Keep existing mobs",
                 tint: nil
             )
         )
@@ -102,7 +101,6 @@ struct SessionSetupMobStepView: View {
                 id: SessionSetupMobStepView.noneSentinel,
                 title: "None",
                 systemImage: "minus.circle",
-                subtitle: "Not set",
                 tint: nil
             )
         )

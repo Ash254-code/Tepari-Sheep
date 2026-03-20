@@ -5,6 +5,7 @@ struct SessionLayoutScanWeighTreatDraftView: View {
     @EnvironmentObject private var store: LocalDataStore
     @EnvironmentObject private var tepariGun: TepariGunManager
     @EnvironmentObject private var drafter: DrafterController
+    @EnvironmentObject private var draftRuleEngine: DraftRuleEngine
 
     @ObservedObject var vm: SessionViewModel
 
@@ -295,32 +296,32 @@ struct SessionLayoutScanWeighTreatDraftView: View {
         ) {
             HStack(spacing: 8) {
                 draftCountTile(
-                    "Left",
-                    subtitle: gateLabel(for: .left),
+                    title: gateLabel(for: .left),
+                    subtitle: positionLabelShort(.left),
                     summary: leftSummary,
                     color: .blue,
                     position: .left
                 )
 
                 draftCountTile(
-                    "Straight",
-                    subtitle: gateLabel(for: .straight),
+                    title: gateLabel(for: .straight),
+                    subtitle: positionLabelShort(.straight),
                     summary: straightSummary,
                     color: .green,
                     position: .straight
                 )
 
                 draftCountTile(
-                    "Right",
-                    subtitle: gateLabel(for: .right),
+                    title: gateLabel(for: .right),
+                    subtitle: positionLabelShort(.right),
                     summary: rightSummary,
                     color: .purple,
                     position: .right
                 )
 
                 draftCountTile(
-                    "Far Right",
-                    subtitle: gateLabel(for: .farRight),
+                    title: gateLabel(for: .farRight),
+                    subtitle: positionLabelShort(.farRight),
                     summary: farRightSummary,
                     color: .orange,
                     position: .farRight
@@ -335,7 +336,7 @@ struct SessionLayoutScanWeighTreatDraftView: View {
     }
 
     private func draftCountTile(
-        _ title: String,
+        title: String,
         subtitle: String,
         summary: SessionViewModel.DraftGateSummary,
         color: Color,
@@ -345,17 +346,19 @@ struct SessionLayoutScanWeighTreatDraftView: View {
         let isFlashing = flashingPosition == position
 
         return VStack(spacing: 6) {
-            Text(title.uppercased())
+            Text(title)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(isActive || isFlashing ? .white : .primary)
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
                 .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity)
 
             Text(subtitle)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(isActive || isFlashing ? .white.opacity(0.96) : .secondary)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
+                .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity)
 
@@ -616,20 +619,72 @@ struct SessionLayoutScanWeighTreatDraftView: View {
         lastAutoSentSignature = signature
         tepariGun.sendSelectedTreatment(treatment, weightKg: weight)
     }
-    
-    private func gateLabel(for position: DraftPosition) -> String {
-        let map = drafter.settings.gateMap
 
-        if map.empty == position { return "Empty" }
-        if map.single == position { return "Single" }
-        if map.twin == position { return "Twin" }
-        if map.keep == position { return "Keep" }
-        if map.cull == position { return "Cull" }
-        if map.custom == position { return "Custom" }
+    private func gateLabel(for position: DraftPosition) -> String {
+        let matchingRules = draftRuleEngine.rules.filter { rule in
+            rule.resolvedPosition(using: draftRuleEngine.gateMap) == position
+        }
+
+        if let first = matchingRules.first {
+            let names = matchingRules
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
+            if names.isEmpty {
+                return "Configured"
+            }
+
+            if names.count == 1 {
+                return names[0]
+            }
+
+            if names.count == 2 {
+                return "\(names[0]), \(names[1])"
+            }
+
+            return "\(names[0]) +\(names.count - 1)"
+        }
+
+        if let fallback = defaultLogicalLabel(for: position) {
+            return fallback
+        }
 
         return "Not set"
     }
-    
+
+    private func defaultLogicalLabel(for position: DraftPosition) -> String? {
+        let map = draftRuleEngine.gateMap
+
+        var labels: [String] = []
+
+        if map.empty == position { labels.append(DraftLogicalTarget.empty.label) }
+        if map.single == position { labels.append(DraftLogicalTarget.single.label) }
+        if map.twin == position { labels.append(DraftLogicalTarget.twin.label) }
+        if map.keep == position { labels.append(DraftLogicalTarget.keep.label) }
+        if map.cull == position { labels.append(DraftLogicalTarget.cull.label) }
+        if map.custom == position { labels.append(DraftLogicalTarget.custom.label) }
+
+        guard !labels.isEmpty else { return nil }
+
+        if labels.count == 1 {
+            return labels[0]
+        }
+
+        if labels.count == 2 {
+            return "\(labels[0]), \(labels[1])"
+        }
+
+        return "\(labels[0]) +\(labels.count - 1)"
+    }
+
+    private func positionLabelShort(_ position: DraftPosition) -> String {
+        switch position {
+        case .left: return "Left gate"
+        case .straight: return "Straight gate"
+        case .right: return "Right gate"
+        case .farRight: return "Far right gate"
+        }
+    }
 }
 
 private struct SessionLayoutScanWeighTreatDraftPanel<Content: View>: View {

@@ -113,7 +113,6 @@ struct SessionSetupYardStepView: View {
                 id: "__none__",
                 title: "None / Skip",
                 systemImage: "minus.circle",
-                subtitle: "No yard tag"
             )
         )
 

@@ -60,7 +60,7 @@ final class ActiveSessionCoordinator: ObservableObject {
     func setSessionTypes(_ types: Set<SetupSessionType>, for sessionID: UUID) {
         typesBySessionID[sessionID] = types
         persistSessionTypes()
-        objectWillChange.send() // ensures router updates immediately
+        objectWillChange.send()
     }
 
     /// Optional: clear stored types for a session (if you delete session, etc.)
@@ -89,6 +89,17 @@ final class ActiveSessionCoordinator: ObservableObject {
     @Published var selectedIndividualAnimalEID: String? = nil
     @Published var selectedIndividualAnimalFarmID: UUID? = nil
 
+    /// Compatibility aliases for other call sites / older code.
+    var selectedAnimalEID: String? {
+        get { selectedIndividualAnimalEID }
+        set { selectedIndividualAnimalEID = Self.cleanedEID(newValue) }
+    }
+
+    var selectedAnimalFarmID: UUID? {
+        get { selectedIndividualAnimalFarmID }
+        set { selectedIndividualAnimalFarmID = newValue }
+    }
+
     /// Individual view uses this (focused overrides live).
     var displayEID: String {
         if let f = focusedEID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -109,7 +120,7 @@ final class ActiveSessionCoordinator: ObservableObject {
         }
     }
 
-    /// Call from history rows, search results, recent scans, etc.
+    /// Call from history rows, search results, recent scans, Animal Data, etc.
     func openIndividualAnimal(eidRaw: String, farmID: UUID? = nil) {
         guard let cleaned = Self.cleanedEID(eidRaw) else { return }
 
@@ -148,19 +159,10 @@ final class ActiveSessionCoordinator: ObservableObject {
     @Published private(set) var restartedSessionIDs: Set<UUID> = []
 
     func restartSessionFromHistory(_ sessionID: UUID) {
-        // Make sure the layout/session-type info exists before switching active session.
         restorePersistedSessionTypesIfNeeded(for: sessionID)
-
-        // Clear any current focus / live state first so the session opens clean.
         resetLiveAnimalState()
-
-        // Mark as restarted so SessionView / individual screens can react onAppear if needed.
         restartedSessionIDs.insert(sessionID)
-
-        // Make this the active session.
         activeSessionID = sessionID
-
-        // Extra notify in case a live screen is already mounted and watching coordinator state.
         objectWillChange.send()
     }
 
