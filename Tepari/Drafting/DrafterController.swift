@@ -10,8 +10,9 @@ final class DrafterController: ObservableObject {
 
     @Published private(set) var currentPosition: DraftPosition = .straight
     @Published private(set) var isMoving: Bool = false
+    @Published private(set) var isHoldingAnimal: Bool = false
 
-    /// ✅ Optional debug hook for UI/status feeds
+    /// Optional debug hook for UI/status feeds
     @Published private(set) var lastCommandSent: DraftPosition? = nil
 
     // =========================================================
@@ -35,6 +36,7 @@ final class DrafterController: ObservableObject {
 
         if settings.startInHomePosition {
             currentPosition = .straight
+            isHoldingAnimal = false
         }
     }
 
@@ -51,18 +53,19 @@ final class DrafterController: ObservableObject {
     }
 
     /// Call this when all required jobs for the current animal are complete.
-    /// Only releases automatically when auto release mode is job-based.
     func releaseIfJobsComplete() {
         guard settings.autoReleaseMode == .whenJobsComplete else { return }
-
-        movementTask?.cancel()
-        movementTask = Task { [weak self] in
-            await self?.runReleaseSequence()
-        }
+        releaseHeldAnimal()
     }
 
     /// Force release regardless of release mode.
     func releaseNow() {
+        releaseHeldAnimal()
+    }
+
+    /// Explicit physical release for a held animal.
+    /// This pulses the release relay and leaves the draft gate where it is.
+    func releaseHeldAnimal() {
         movementTask?.cancel()
         movementTask = Task { [weak self] in
             await self?.runReleaseSequence()
@@ -74,6 +77,8 @@ final class DrafterController: ObservableObject {
 
         if settings.returnHomeOnSessionEnd {
             moveToHome()
+        } else {
+            isHoldingAnimal = false
         }
     }
 
@@ -83,6 +88,8 @@ final class DrafterController: ObservableObject {
         isMoving = false
     }
 
+    /// Explicitly return draft gate to centre/home.
+    /// This is separate from "release".
     func moveToHome() {
         movementTask?.cancel()
         movementTask = Task { [weak self] in
@@ -93,8 +100,7 @@ final class DrafterController: ObservableObject {
     // =========================================================
     // MARK: - Public API (LOGICAL)
     // =========================================================
-    /// ✅ NEW: Draft by logical target (preg/keep/cull/etc)
-    /// Keeps preg / future flows independent of physical gate layout.
+
     func draftAnimal(
         logical target: DraftLogicalTarget,
         using map: DraftGateMap
@@ -123,27 +129,31 @@ final class DrafterController: ObservableObject {
         isMoving = true
 
         do {
-            try await sleep(settings.triggerDelaySeconds)
+            if !isManualTest {
+                try await sleep(settings.triggerDelaySeconds)
+            }
 
             try await performGateMove(to: target)
             currentPosition = target
+            isHoldingAnimal = target != .straight
 
-            let holdSeconds = isManualTest
-                ? settings.manualTestHoldSeconds
-                : settings.gateHoldSeconds
+            if isManualTest {
+                try await sleep(settings.manualTestHoldSeconds)
+                try await runManualTestReturnInline()
+            } else {
+                switch settings.autoReleaseMode {
+                case .off:
+                    // Stay drafted until next draft command or explicit release.
+                    break
 
-            switch settings.autoReleaseMode {
-            case .off:
-                break
+                case .timed:
+                    try await sleep(settings.gateHoldSeconds)
+                    try await runReleaseSequenceInline()
 
-            case .timed:
-                try await sleep(holdSeconds)
-                try await runReleaseSequenceInline()
-
-            case .whenJobsComplete:
-                // Hold current position until session workflow says release.
-                // No timed release here.
-                break
+                case .whenJobsComplete:
+                    // Hold until session logic explicitly calls release.
+                    break
+                }
             }
 
         } catch {
@@ -154,7 +164,7 @@ final class DrafterController: ObservableObject {
     }
 
     private func runReleaseSequence() async {
-        if settings.blockWhileMoving && isMoving {
+        if !isHoldingAnimal {
             return
         }
 
@@ -169,25 +179,32 @@ final class DrafterController: ObservableObject {
         isMoving = false
     }
 
+    /// Real animal release:
+    /// pulse the release relay, leave draft gate in its current position.
     private func runReleaseSequenceInline() async throws {
         if settings.releaseDelaySeconds > 0 {
             try await sleep(settings.releaseDelaySeconds)
         }
 
-        if settings.releaseToHomePosition {
-            try await performGateMove(to: .straight)
-            currentPosition = .straight
-        } else {
-            releaseAllDraftRelays()
-        }
+        DraftWifiController.pulseRelease()
+        isHoldingAnimal = false
+    }
+
+    /// Manual gate test behaviour:
+    /// return the draft gate to centre/home after the hold.
+    private func runManualTestReturnInline() async throws {
+        try await performReturnToHome()
+        currentPosition = .straight
+        isHoldingAnimal = false
     }
 
     private func runMoveToHomeSequence() async {
         isMoving = true
 
         do {
-            try await performGateMove(to: .straight)
+            try await performReturnToHome()
             currentPosition = .straight
+            isHoldingAnimal = false
         } catch {
             // cancelled / timeout
         }
@@ -209,28 +226,34 @@ final class DrafterController: ObservableObject {
         }
     }
 
+    private func performReturnToHome() async throws {
+        sendGateCommand(.straight)
+
+        try await withTimeout(
+            seconds: self.settings.movementTimeoutSeconds
+        ) { [self] in
+            try await self.sleep(self.settings.gateReturnSeconds)
+        }
+    }
+
     private func sendGateCommand(_ position: DraftPosition) {
         lastCommandSent = position
         print("DRAFT MOVE → \(position.label) (\(position.rawValue))")
 
         switch position {
         case .left:
-            // Left = relay 1 on, relay 2 off
             DraftWifiController.releaseGate(2)
             DraftWifiController.holdGate(1)
 
         case .straight:
-            // Centre/home = both off
             DraftWifiController.releaseGate(1)
             DraftWifiController.releaseGate(2)
 
         case .right:
-            // Right = relay 2 on, relay 1 off
             DraftWifiController.releaseGate(1)
             DraftWifiController.holdGate(2)
 
         case .farRight:
-            // Far right not wired yet - park in centre/home
             DraftWifiController.releaseGate(1)
             DraftWifiController.releaseGate(2)
         }

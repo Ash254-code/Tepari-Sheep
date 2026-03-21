@@ -227,7 +227,6 @@ struct SessionSetupView: View {
         }
 
         if selectedTypes.contains(.draft) {
-            locked.insert(.scales)
             locked.insert(.handler)
             locked.insert(.draft)
         }

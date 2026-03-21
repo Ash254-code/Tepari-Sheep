@@ -34,6 +34,8 @@ struct RootTabView: View {
     private let iPadDockHeight: CGFloat = 100
     private let iPadDockGapAbovePill: CGFloat = 10
 
+    private let parser = TepariMessageParser()
+
     private var iPadReservedBottomBase: CGFloat {
         iPadTabBarHeight + iPadTabBarBottomPad + 18
     }
@@ -125,6 +127,36 @@ struct RootTabView: View {
     private func goHome() {
         sessionCoordinator.endSession()
         goToSessionTab()
+    }
+
+    private func installTransportLineHandler() {
+        transport.onReceiveLine = { line in
+            if line.hasPrefix("[DBG-]") ||
+                line.hasPrefix("[DBG-") ||
+                line.hasPrefix("[STATE]") ||
+                line.hasPrefix("[INFO]") ||
+                line.hasPrefix("[WATCHDOG]") {
+                return
+            }
+
+            let events = parser.parseLine(line)
+            guard !events.isEmpty else { return }
+            guard sessionCoordinator.activeSessionID != nil else { return }
+
+            sessionVM.ingest(events: events)
+            sessionCoordinator.push(
+                eid: sessionVM.currentEID,
+                weight: sessionVM.currentWeight,
+                stable: sessionVM.isStable,
+                locked: sessionVM.isLocked
+            )
+        }
+    }
+
+    private func ensureTransportConnectedIfNeeded() {
+        if transport.method == .tcp && transport.state == .disconnected {
+            transport.connect()
+        }
     }
 
     var body: some View {
@@ -280,7 +312,10 @@ struct RootTabView: View {
             sessionVM.drafterController = drafter
             sessionVM.draftEngine?.gateMap = draftSettings.gateMap
 
+            installTransportLineHandler()
+            ensureTransportConnectedIfNeeded()
             syncDemoFeed()
+
             sessionDock.resetDefaults()
             sessionDock.setTreatmentsConfigured(0)
 
@@ -292,10 +327,17 @@ struct RootTabView: View {
             }
         }
         .onChange(of: transport.method) { _, _ in
+            installTransportLineHandler()
             syncDemoFeed()
+            ensureTransportConnectedIfNeeded()
+        }
+        .onChange(of: transport.state) { _, _ in
+            installTransportLineHandler()
         }
         .onChange(of: sessionCoordinator.activeSessionID) { _, newID in
+            installTransportLineHandler()
             syncDemoFeed()
+
             sessionDock.resetDefaults()
             sessionDock.setTreatmentsConfigured(0)
 
@@ -317,6 +359,8 @@ struct RootTabView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            installTransportLineHandler()
+            ensureTransportConnectedIfNeeded()
             DraftWifiController.startDiscovery()
             racewell.refreshStatus()
         }

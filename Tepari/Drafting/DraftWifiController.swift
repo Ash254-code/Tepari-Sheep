@@ -118,6 +118,36 @@ enum DraftWifiController {
     }
 
     // -------------------------------------------------
+    // MARK: - Catch / Release
+    // -------------------------------------------------
+
+    // Existing firmware-timed endpoints
+    static func pulseCatch() {
+        sendRequest(path: "/CATCH", label: "WiFi CATCH")
+    }
+
+    static func pulseRelease() {
+        sendRequest(path: "/RELEASE", label: "WiFi RELEASE")
+    }
+
+    // App-timed pulse versions (no ESP reflashing needed)
+    static func pulseCatchForApp(seconds: Double = 1.0) {
+        holdGate(3)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            releaseGate(3)
+        }
+    }
+
+    static func pulseReleaseForApp(seconds: Double = 1.0) {
+        holdGate(4)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            releaseGate(4)
+        }
+    }
+
+    // -------------------------------------------------
     // MARK: - Pause Relay
     // -------------------------------------------------
 

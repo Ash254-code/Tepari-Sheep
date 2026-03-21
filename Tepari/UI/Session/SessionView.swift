@@ -42,8 +42,6 @@ struct SessionView: View {
     @AppStorage(kEnableStapleMeasureKey) private var enableStapleMeasure = false
     @AppStorage("drafter_pause_relay_latched") private var isDraftPaused = false
 
-    private let parser = TepariMessageParser()
-
     init(
         store: LocalDataStore,
         settings: AppSettings,
@@ -169,7 +167,6 @@ struct SessionView: View {
         vm.setWeighingEnabled(
             (cfg?.weighingEnabled ?? false) ||
             activeTypes.contains(.weigh) ||
-            activeTypes.contains(.draft) ||
             activeTypes.contains(.fleeceWeigh)
         )
     }
@@ -500,46 +497,21 @@ struct SessionView: View {
 
                 updateTraitsEnabledState()
 
-                transport.onReceiveLine = { line in
-                    if line.hasPrefix("[DBG-") ||
-                        line.hasPrefix("[STATE]") ||
-                        line.hasPrefix("[INFO]") ||
-                        line.hasPrefix("[WATCHDOG]") {
-                        return
-                    }
-
-                    let events = parser.parseLine(line)
-                    if !events.isEmpty {
-                        vm.ingest(events: events)
-                        syncCoordinator()
-                    }
-                }
-
                 if transport.method == .demo {
                     vm.startDemoIfNeeded()
                 } else {
                     vm.stopDemo()
                 }
 
-                if transport.method == .tcp && transport.state == .disconnected {
-                    transport.connect()
-                }
 
                 configureDockIfNeeded()
                 updateDockState()
-            }
-            .onDisappear {
-                transport.onReceiveLine = nil
             }
             .onChange(of: transport.method) { _, m in
                 if m == .demo {
                     vm.startDemoIfNeeded()
                 } else {
                     vm.stopDemo()
-
-                    if m == .tcp && transport.state == .disconnected {
-                        transport.connect()
-                    }
                 }
                 updateDockState()
             }
@@ -567,9 +539,6 @@ struct SessionView: View {
                     syncCoordinator()
                 }
 
-                if transport.method == .tcp && transport.state == .disconnected {
-                    transport.connect()
-                }
             }
             .onChange(of: scannedCount) { _, _ in
                 updateDockState()

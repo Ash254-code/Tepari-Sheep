@@ -16,64 +16,79 @@ struct ConnectivityView: View {
             GlassBackground()
 
             List {
+                Section {
+                    ConnectivityIntroCard(
+                        title: "Connectivity",
+                        subtitle: "Set up and test connected hardware used by weighing, drafting, scanning and dosing sessions.",
+                        systemImage: "bolt.horizontal.circle.fill",
+                        tint: .yellow
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
 
                 Section("Devices") {
-
                     NavigationLink {
                         T1ConnectivityView()
                     } label: {
-                        SettingsLikeRow(
+                        ConnectivityMenuRow(
                             title: "T1 Scale with integrated EID",
                             subtitle: "Wi-Fi TCP connection, weight locking and diagnostics",
-                            systemImage: "scalemass.fill"
+                            systemImage: "scalemass.fill",
+                            tint: .blue
                         )
                     }
 
                     NavigationLink {
                         RacewellConnectivityView()
                     } label: {
-                        SettingsLikeRow(
+                        ConnectivityMenuRow(
                             title: "Racewell Drafter",
-                            subtitle: "Connect + gate test + log",
-                            systemImage: "arrow.trianglehead.branch"
+                            subtitle: "Connect, gate test and relay controls",
+                            systemImage: "arrow.triangle.branch",
+                            tint: .orange
                         )
                     }
 
                     NavigationLink {
                         StickReaderConnectivityView()
                     } label: {
-                        SettingsLikeRow(
+                        ConnectivityMenuRow(
                             title: "Stick Reader",
-                            subtitle: "BLE scan + pick + connect + tag scan",
-                            systemImage: "dot.radiowaves.left.and.right"
+                            subtitle: "BLE scan, connect and tag reads",
+                            systemImage: "dot.radiowaves.left.and.right",
+                            tint: .green
                         )
                     }
 
                     NavigationLink {
                         XRP2iConnectivityView()
                     } label: {
-                        SettingsLikeRow(
+                        ConnectivityMenuRow(
                             title: "XRP2i Panel Reader",
-                            subtitle: "Panel antenna + continuous tag read",
-                            systemImage: "rectangle.connected.to.line.below"
+                            subtitle: "Panel antenna and continuous tag read",
+                            systemImage: "rectangle.connected.to.line.below",
+                            tint: .purple
                         )
                     }
 
                     NavigationLink {
                         TepariGunConnectivityView()
                     } label: {
-                        SettingsLikeRow(
+                        ConnectivityMenuRow(
                             title: "Tepari Dosing Gun",
-                            subtitle: "Dose trigger + animal ID integration",
-                            systemImage: "syringe.fill"
+                            subtitle: "Dose trigger and animal ID integration",
+                            systemImage: "syringe.fill",
+                            tint: .pink
                         )
                     }
                 }
 
-                Section("How this will work") {
-                    Text("Set up devices here first. Later, the session wizard will ask “Weigh?” “Draft?” “Scan tags?” and use the configured devices.")
+                Section("How this works") {
+                    Text("Set up devices here first. Later, the session wizard can ask what functions are needed and use the configured devices automatically.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -117,21 +132,38 @@ struct T1ConnectivityView: View {
             GlassBackground()
 
             List {
+                Section {
+                    ConnectivityHeaderCard(
+                        title: "T1 Scale",
+                        subtitle: "Wi-Fi TCP connection, commands, stability tuning and diagnostics.",
+                        systemImage: "scalemass.fill",
+                        tint: .blue
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
 
                 Section("Quick Setup") {
                     Button {
                         transport.useT1Defaults()
                     } label: {
                         Label("Use T1 Defaults (TCP t1.local:2000)", systemImage: "wand.and.stars")
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
 
-                    Text("For T1, use Wi-Fi (TCP). Demo is for testing without hardware.")
+                    Text("For T1, use Wi-Fi TCP. Demo mode is for testing without hardware.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
                 Section("Connection") {
+                    ConnectivityStatusRow(
+                        title: "Scale",
+                        value: stateText,
+                        tint: statusColor
+                    )
+
                     Picker("Method", selection: $transport.method) {
                         ForEach(TransportManager.Method.allCases, id: \.self) { m in
                             Text(m.label).tag(m)
@@ -175,14 +207,6 @@ struct T1ConnectivityView: View {
                         }
                     }
 
-                    HStack {
-                        Text("Status")
-                        Spacer()
-                        Text(stateText)
-                            .foregroundStyle(statusColor)
-                            .font(.subheadline.weight(.semibold))
-                    }
-
                     HStack(spacing: 12) {
                         Button(role: .destructive) {
                             transport.disconnect()
@@ -216,22 +240,21 @@ struct T1ConnectivityView: View {
 
                 if transport.method == .tcp {
                     Section("Scale Actions") {
-
                         Button {
                             transport.sendZeroCommand()
                         } label: {
                             Label("ZERO / TARE", systemImage: "scalemass.fill")
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!isTCPConnected)
 
-                        Text("Use this when the platform is empty. Sends the T1 zero/tare command.")
+                        Text("Use this when the platform is empty. Sends the T1 zero or tare command.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
 
                     Section("Weight Stability") {
-
                         Picker("Stability Source", selection: $settings.stabilitySource) {
                             ForEach(AppSettings.StabilitySource.allCases) { s in
                                 Text(s.label).tag(s)
@@ -315,7 +338,6 @@ struct T1ConnectivityView: View {
                     }
 
                     Section("Polling / Request Mode") {
-
                         Toggle("Request Required", isOn: $transport.requestModeEnabled)
 
                         DefaultMarkedSliderRow(
@@ -349,7 +371,6 @@ struct T1ConnectivityView: View {
                     }
 
                     Section("Keepalive") {
-
                         Toggle("Enabled", isOn: $transport.keepAliveEnabled)
 
                         DefaultMarkedSliderRow(
@@ -363,7 +384,6 @@ struct T1ConnectivityView: View {
                     }
 
                     Section("Burst Probes") {
-
                         Toggle("Burst Variants On Connect", isOn: $transport.burstBothPollVariantsOnConnect)
 
                         DefaultMarkedSliderRow(
@@ -388,7 +408,6 @@ struct T1ConnectivityView: View {
                     }
 
                     Section("Watchdog") {
-
                         Toggle("Enabled", isOn: $transport.watchdogEnabled)
 
                         DefaultMarkedSliderRow(
@@ -403,11 +422,26 @@ struct T1ConnectivityView: View {
                 }
 
                 Section("Diagnostics") {
-                    NavigationLink("T1 Diagnostics") {
+                    NavigationLink {
                         ConnectionDiagnosticsView()
+                    } label: {
+                        ConnectivityInlineRow(
+                            title: "T1 Diagnostics",
+                            subtitle: "Connection details and inspection tools",
+                            systemImage: "stethoscope",
+                            tint: .blue
+                        )
                     }
-                    NavigationLink("T1 Raw Log") {
+
+                    NavigationLink {
                         RawLogView()
+                    } label: {
+                        ConnectivityInlineRow(
+                            title: "T1 Raw Log",
+                            subtitle: "Incoming and outgoing transport data",
+                            systemImage: "doc.text.magnifyingglass",
+                            tint: .indigo
+                        )
                     }
                 }
             }
@@ -558,17 +592,25 @@ struct RacewellConnectivityView: View {
             GlassBackground()
 
             List {
+                Section {
+                    ConnectivityHeaderCard(
+                        title: "Racewell Drafter",
+                        subtitle: "Connection status, gate tests, tilt controls and relay actions.",
+                        systemImage: "arrow.triangle.branch",
+                        tint: .orange
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
 
                 Section("Status") {
                     StatusIndicatorView(title: "Racewell", state: racewell.state)
 
-                    HStack {
-                        Text("Drafter")
-                        Spacer()
-                        Text(statusText)
-                            .foregroundStyle(statusColor)
-                            .font(.subheadline.weight(.semibold))
-                    }
+                    ConnectivityStatusRow(
+                        title: "Drafter",
+                        value: statusText,
+                        tint: statusColor
+                    )
                 }
 
                 Section("Connection") {
@@ -605,12 +647,12 @@ struct RacewellConnectivityView: View {
                             racewell.state == .reconnecting
                         )
                     }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
 
                     Button {
                         racewell.refreshStatus()
                     } label: {
                         Label("Refresh Status", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -874,22 +916,28 @@ struct StickReaderConnectivityView: View {
             GlassBackground()
 
             List {
+                Section {
+                    ConnectivityHeaderCard(
+                        title: "Stick Reader",
+                        subtitle: "BLE device scan, connection state and live EID reads.",
+                        systemImage: "dot.radiowaves.left.and.right",
+                        tint: .green
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
 
                 Section("Status") {
                     StatusIndicatorView(title: "Stick Reader", state: stick.state)
 
-                    HStack {
-                        Text("Connected")
-                        Spacer()
-                        Text(stick.connectedName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    ConnectivityStatusRow(
+                        title: "Connected",
+                        value: stick.connectedName,
+                        tint: .secondary
+                    )
                 }
 
                 Section("Scan") {
-
                     if stick.isScanning {
                         Button(role: .destructive) {
                             stick.stopScan()
@@ -906,12 +954,13 @@ struct StickReaderConnectivityView: View {
                             stick.startScan()
                         } label: {
                             Label("Start Scan", systemImage: "dot.radiowaves.left.and.right")
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.borderedProminent)
                     }
 
                     if stick.discovered.isEmpty {
-                        Text(stick.isScanning ? "Scanning… bring the stick closer / wake it up." : "No devices found yet.")
+                        Text(stick.isScanning ? "Scanning… bring the stick closer or wake it up." : "No devices found yet.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
@@ -927,25 +976,15 @@ struct StickReaderConnectivityView: View {
                             Button {
                                 stick.connect(to: d.id)
                             } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(d.name)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                        Text(d.id.uuidString)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-
-                                    Spacer()
-
-                                    Text("\(d.rssi)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 4)
+                                ConnectivityDiscoveredDeviceRow(
+                                    title: d.name,
+                                    subtitle: d.id.uuidString,
+                                    trailing: "\(d.rssi)",
+                                    systemImage: "dot.radiowaves.left.and.right",
+                                    tint: .green
+                                )
                             }
+                            .buttonStyle(.plain)
                             .disabled(stick.state == .connecting || stick.state == .reconnecting)
                         }
                     }
@@ -956,6 +995,7 @@ struct StickReaderConnectivityView: View {
                         stick.disconnect()
                     } label: {
                         Label("Disconnect", systemImage: "xmark.circle")
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
                     .disabled(stick.state == .disconnected && stick.connectedName == "—")
@@ -974,7 +1014,7 @@ struct StickReaderConnectivityView: View {
                             .textSelection(.enabled)
                     }
 
-                    Text("If this stays blank, check the Log below for RX bytes. We can then lock onto the correct characteristic/format.")
+                    Text("If this stays blank, check the log below for RX bytes. That will help lock onto the right characteristic or format.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -1012,29 +1052,217 @@ struct StickReaderConnectivityView: View {
 
 
 // =====================================================
-// MARK: - Small row helper (keeps the hub tidy)
+// MARK: - Styling helpers
 // =====================================================
 
-private struct SettingsLikeRow: View {
+private struct ConnectivityIntroCard: View {
     let title: String
     let subtitle: String
     let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 52, height: 52)
+
+                Image(systemName: systemImage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.08))
+        )
+    }
+}
+
+private struct ConnectivityHeaderCard: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 50, height: 50)
+
+                Image(systemName: systemImage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.08))
+        )
+    }
+}
+
+private struct ConnectivityMenuRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 42, height: 42)
+
+                Image(systemName: systemImage)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct ConnectivityInlineRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .imageScale(.medium)
-                .frame(width: 22)
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 34, height: 34)
 
-            VStack(alignment: .leading, spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
+
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 6)
+
+            Spacer()
         }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct ConnectivityStatusRow: View {
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+
+            Spacer()
+
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct ConnectivityDiscoveredDeviceRow: View {
+    let title: String
+    let subtitle: String
+    let trailing: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(trailing)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

@@ -23,12 +23,10 @@ struct SessionSetupYardStepView: View {
         return store.farms.first(where: { $0.id == id })
     }
 
+    // ✅ FIX: DO NOT SORT → preserve FarmSetup order
     private var yardsForSelectedFarm: [String] {
         guard let farmID = selectedFarmID else { return [] }
-        // Sorted = predictable + feels cleaner
-        return YardLocationStore
-            .list(for: farmID)
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return YardLocationStore.list(for: farmID)
     }
 
     var body: some View {
@@ -49,7 +47,7 @@ struct SessionSetupYardStepView: View {
 
                     pendingAutoNextWork?.cancel()
 
-                    // ✅ animate the selected state so user sees it
+                    // ✅ animate selection
                     withAnimation(.spring(response: selectionPulseDuration, dampingFraction: 1.0)) {
                         if first == "__none__" {
                             selectedYard = nil
@@ -64,7 +62,6 @@ struct SessionSetupYardStepView: View {
                 }
             )
             .onChange(of: selectedFarmID) { _, _ in
-                // ✅ Farm changed → clear yard + allow auto-advance again
                 selectedYard = nil
                 didAutoAdvance = false
                 pendingAutoNextWork?.cancel()
@@ -98,7 +95,7 @@ struct SessionSetupYardStepView: View {
     private var yardTiles: [WizardTile] {
         var tiles: [WizardTile] = []
 
-        // ✅ Add actual yards FIRST
+        // ✅ Order now matches Farm Setup EXACTLY
         tiles += yardsForSelectedFarm.map { yard in
             WizardTile(
                 id: yard,
@@ -107,12 +104,12 @@ struct SessionSetupYardStepView: View {
             )
         }
 
-        // ✅ Add None/Skip LAST (best UX)
+        // ✅ Always last
         tiles.append(
             WizardTile(
                 id: "__none__",
                 title: "None / Skip",
-                systemImage: "minus.circle",
+                systemImage: "minus.circle"
             )
         )
 
@@ -122,7 +119,6 @@ struct SessionSetupYardStepView: View {
     private var yardSelectionBinding: Binding<Set<String>> {
         Binding<Set<String>>(
             get: {
-                // If no yard selected, highlight None/Skip
                 if let yard = selectedYard, !yard.isEmpty {
                     return [yard]
                 }

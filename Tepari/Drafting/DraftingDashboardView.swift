@@ -11,15 +11,6 @@ struct DraftDashboardView: View {
     @Environment(\.horizontalSizeClass) private var hSize
     private var isPhoneCompact: Bool { hSize == .compact }
 
-    private var autoReleaseEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { draftSettings.autoReleaseMode != .off },
-            set: { newValue in
-                draftSettings.autoReleaseMode = newValue ? .whenJobsComplete : .off
-            }
-        )
-    }
-
     private var autoReleaseStatusText: String {
         switch draftSettings.autoReleaseMode {
         case .off:
@@ -380,6 +371,7 @@ struct DraftDashboardView: View {
         }
         .frame(maxWidth: .infinity)
     }
+
     private var noSessionCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -405,32 +397,23 @@ struct DraftDashboardView: View {
 
                 Divider().opacity(0.22)
 
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Auto Release")
-                            .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Auto Release")
+                        .font(.subheadline.weight(.semibold))
 
-                        Text(autoReleaseStatusText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: autoReleaseEnabledBinding)
-                        .labelsHidden()
-                }
-                
-                if draftSettings.autoReleaseMode != .off {
-                    Picker("Release Mode", selection: $draftSettings.autoReleaseMode) {
-                        ForEach(DraftSettings.AutoReleaseMode.allCases.filter { $0 != .off }) { mode in
+                    Picker("Auto Release", selection: $draftSettings.autoReleaseMode) {
+                        ForEach(DraftSettings.AutoReleaseMode.allCases) { mode in
                             Text(mode.label).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    Text(autoReleaseStatusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                
+
                 if let selectedMode = draftState.setup.selectedMode {
                     Divider().opacity(0.22)
                     modeSetupCard(selectedMode)
@@ -475,6 +458,7 @@ struct DraftDashboardView: View {
             .padding(14)
         }
     }
+
     private var overviewCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -1677,6 +1661,7 @@ struct DraftDashboardView: View {
             break
         }
     }
+
     private var defaultWeightRules: [WeightDraftRuleRow] {
         [
             .init(label: "Light", minKg: "", maxKg: "45", bucket: .left),
@@ -1684,6 +1669,7 @@ struct DraftDashboardView: View {
             .init(label: "Heavy", minKg: "60", maxKg: "", bucket: .right)
         ]
     }
+
     private func bindingForWeightRule(_ id: UUID) -> (
         label: Binding<String>,
         minKg: Binding<String>,

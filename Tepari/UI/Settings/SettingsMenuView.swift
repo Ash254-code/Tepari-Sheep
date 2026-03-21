@@ -35,30 +35,18 @@ struct SettingsMenuView: View {
             if needsOwnNavigationStack {
                 NavigationStack {
                     content
-                        .applyNavBarPills(
-                            handlerState: handlerState,
-                            draftState: draftState,
-                            stickState: stickState
-                        )
                 }
             } else {
                 content
-                    .applyNavBarPills(
-                        handlerState: handlerState,
-                        draftState: draftState,
-                        stickState: stickState
-                    )
             }
         }
     }
-
     private var content: some View {
         ZStack {
             GlassBackground()
 
             ScrollView {
                 VStack(spacing: 14) {
-                    headerCard
 
                     settingsSection(
                         title: "Connectivity",
@@ -222,28 +210,6 @@ struct SettingsMenuView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var headerCard: some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Settings")
-                    .font(.title3.weight(.bold))
-
-                Text("Manage connectivity, data, classes, treatments and app behaviour.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 8) {
-                    settingsBadge("Connectivity")
-                    settingsBadge("Data")
-                    settingsBadge("Operations")
-                    settingsBadge("App")
-                }
-                .padding(.top, 2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 
     private func settingsSection<Content: View>(
@@ -1032,9 +998,7 @@ private func metaPill(_ text: String) -> some View {
 // =====================================================
 
 private struct ProgrammedTagsEntry: View {
-
     @EnvironmentObject private var store: LocalDataStore
-    @State private var selectedFarmID: UUID?
 
     var body: some View {
         Group {
@@ -1044,22 +1008,13 @@ private struct ProgrammedTagsEntry: View {
                     systemImage: "exclamationmark.triangle",
                     description: Text("Add a farm before programming tags.")
                 )
-            } else if store.farms.count == 1 {
-                ProgrammedTagsView(farmID: store.farms[0].id)
-            } else if let farmID = selectedFarmID {
-                ProgrammedTagsView(farmID: farmID)
             } else {
-                FarmPickerSimple(
-                    farms: store.farms,
-                    onPick: { selectedFarmID = $0 }
-                )
+                ProgrammedTagsView()
             }
         }
         .navigationTitle("Programmed Tags")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
-
 // =====================================================
 // MARK: - Mob setup entry
 // =====================================================

@@ -9,6 +9,30 @@ struct GateTimingCalibrationView: View {
         List {
 
             // =====================================================
+            // MARK: Timed Auto Release
+            // =====================================================
+
+            Section("Timed Auto Release") {
+                Picker("Release Mode", selection: $draftSettings.autoReleaseMode) {
+                    ForEach(DraftSettings.AutoReleaseMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("This screen calibrates physical gate timing.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("Timed mode uses Trigger Delay, Move Duration, Hold Duration and Return Duration from this screen. Jobs Complete mode holds the animal until session logic explicitly releases it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // =====================================================
             // MARK: Movement Timing
             // =====================================================
 
@@ -45,6 +69,11 @@ struct GateTimingCalibrationView: View {
                     step: 0.1,
                     unit: "s"
                 )
+
+                Text("Hold Duration is the key timing used by Timed auto-release. Off mode will keep holding until manually or explicitly released. Jobs Complete mode ignores timed release and waits for the session workflow.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             // =====================================================
@@ -53,15 +82,6 @@ struct GateTimingCalibrationView: View {
 
             Section("Behaviour") {
 
-                Toggle(
-                    "Auto return after animal",
-                    isOn: Binding(
-                        get: { draftSettings.autoReleaseMode != .off },
-                        set: { newValue in
-                            draftSettings.autoReleaseMode = newValue ? .timed : .off
-                        }
-                    )
-                )
                 Toggle(
                     "Return home when session ends",
                     isOn: $draftSettings.returnHomeOnSessionEnd
@@ -75,6 +95,19 @@ struct GateTimingCalibrationView: View {
                 Toggle(
                     "Block new draft while moving",
                     isOn: $draftSettings.blockWhileMoving
+                )
+
+                Toggle(
+                    "Release returns to home position",
+                    isOn: $draftSettings.releaseToHomePosition
+                )
+
+                sliderRow(
+                    title: "Release Delay",
+                    value: $draftSettings.releaseDelaySeconds,
+                    range: 0...5,
+                    step: 0.1,
+                    unit: "s"
                 )
             }
 
@@ -91,6 +124,11 @@ struct GateTimingCalibrationView: View {
                     step: 0.1,
                     unit: "s"
                 )
+
+                Text("Manual tests always pulse the selected gate then return, regardless of the selected release mode.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 VStack(spacing: 10) {
 
@@ -119,6 +157,11 @@ struct GateTimingCalibrationView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+
+                    Button("Release Now") {
+                        drafter.releaseNow()
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -161,7 +204,7 @@ private extension GateTimingCalibrationView {
             HStack {
                 Text(title)
                 Spacer()
-                Text("\(value.wrappedValue, specifier: "%.1f") \(unit)")
+                Text(displayValue(for: value.wrappedValue, step: step, unit: unit))
                     .foregroundStyle(.secondary)
             }
 
@@ -170,6 +213,15 @@ private extension GateTimingCalibrationView {
                 in: range,
                 step: step
             )
+        }
+    }
+
+    func displayValue(for value: Double, step: Double, unit: String) -> String {
+        let usesWholeNumbers = step >= 1 && abs(step.rounded() - step) < 0.0001
+        if usesWholeNumbers {
+            return "\(Int(value.rounded())) \(unit)"
+        } else {
+            return String(format: "%.1f %@", value, unit)
         }
     }
 }

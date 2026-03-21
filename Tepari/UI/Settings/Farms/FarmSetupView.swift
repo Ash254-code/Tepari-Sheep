@@ -42,54 +42,17 @@ struct FarmSetupView: View {
             GlassBackground()
 
             ScrollView {
-                VStack(spacing: 14) {
-
-                    // =====================================================
-                    // Add / Edit farm (Glass style)
-                    // =====================================================
+                VStack(spacing: 16) {
+                    overviewCard
                     farmFormCard
-
-                    // ✅ Heading OUTSIDE cards
-                    HStack {
-                        Text("Your farms")
-                            .font(.title3.weight(.semibold))
-                        Spacer()
-                        Text("\(store.farms.count)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
-                    }
-                    .padding(.top, 2)
-                    .padding(.horizontal, 2)
-
-                    // ✅ Each farm gets its own card
-                    if store.farms.isEmpty {
-                        GlassCard {
-                            Text("No farms yet. Add one above.")
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 10)
-                        }
-                    } else {
-                        VStack(spacing: 12) {
-                            ForEach(store.farms) { farm in
-                                farmCard(farm)
-                            }
-                        }
-                    }
+                    farmsSection
                 }
                 .padding(16)
+                .padding(.bottom, 12)
             }
         }
         .navigationTitle("Farms")
         .navigationBarTitleDisplayMode(.inline)
-
-        // ✅ Pills inside nav bar
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 GlobalConnectionOverlay(
@@ -108,8 +71,6 @@ struct FarmSetupView: View {
         }
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(.thinMaterial, for: .navigationBar)
-
-        // ✅ Manage yards sheet (kept simple for compile stability)
         .sheet(isPresented: $showManageYards) {
             if let farmID = manageFarmID {
                 ManageYardsSheet(
@@ -124,63 +85,161 @@ struct FarmSetupView: View {
     }
 
     // =====================================================
+    // MARK: - Top overview
+    // =====================================================
+
+    private var overviewCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    FarmHeroIcon(
+                        systemImage: "leaf.fill",
+                        tint: .green
+                    )
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Farm setup")
+                            .font(.headline)
+
+                        Text("Create farms, store PICs and manage yard locations used throughout Tepari.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    FarmStatPill(
+                        title: "Farms",
+                        value: "\(store.farms.count)",
+                        systemImage: "building.2.crop.circle",
+                        tint: .blue
+                    )
+
+                    FarmStatPill(
+                        title: "Yards",
+                        value: "\(totalYardCount)",
+                        systemImage: "mappin.and.ellipse",
+                        tint: .orange
+                    )
+                }
+            }
+        }
+    }
+
+    // =====================================================
+    // MARK: - Main sections
+    // =====================================================
+
+    private var farmsSection: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Your farms")
+                    .font(.title3.weight(.semibold))
+
+                Spacer()
+
+                Text("\(store.farms.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            }
+            .padding(.horizontal, 2)
+
+            if store.farms.isEmpty {
+                GlassCard {
+                    EmptyStateCard(
+                        title: "No farms yet",
+                        subtitle: "Add your first farm above to start organising PICs and yard locations.",
+                        systemImage: "leaf.circle",
+                        tint: .green
+                    )
+                }
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(store.farms) { farm in
+                        farmCard(farm)
+                    }
+                }
+            }
+        }
+    }
+
+    // =====================================================
     // MARK: - Cards
     // =====================================================
 
     private var farmFormCard: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 14) {
-
-                // ✅ Fresher “glass” header
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 34, height: 34)
-                            .overlay(
-                                Circle().stroke(Color.white.opacity(0.16), lineWidth: 1)
-                            )
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
+                    FarmHeroIcon(
+                        systemImage: editingFarm == nil ? "plus.circle.fill" : "pencil.circle.fill",
+                        tint: editingFarm == nil ? .blue : .orange
+                    )
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(editingFarm == nil ? "Add farm" : "Edit farm")
                             .font(.headline)
 
-                        Text("Farm name + PIC")
-                            .font(.caption)
+                        Text(editingFarm == nil ? "Enter a farm name and PIC to add it to your list." : "Update the selected farm’s details below.")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer()
 
                     if editingFarm != nil {
-                        Button { clearForm() } label: {
+                        Button {
+                            clearForm()
+                        } label: {
                             Label("Cancel", systemImage: "xmark.circle.fill")
                         }
                         .glassButton(.compact)
                     }
                 }
 
-                glassField(icon: "textformat", placeholder: "Farm name", text: $farmName, autocaps: .words)
+                VStack(spacing: 12) {
+                    glassField(
+                        icon: "building.2.crop.circle",
+                        placeholder: "Farm name",
+                        text: $farmName,
+                        autocaps: .words
+                    )
 
-                glassField(icon: "number", placeholder: "PIC (Property ID Code)", text: $farmPIC, autocaps: .characters)
+                    glassField(
+                        icon: "number.circle",
+                        placeholder: "PIC (Property ID Code)",
+                        text: $farmPIC,
+                        autocaps: .characters
+                    )
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
+                }
 
                 HStack(spacing: 10) {
                     Button {
                         saveFarm()
                     } label: {
-                        Label(editingFarm == nil ? "Add farm" : "Save changes", systemImage: "checkmark.circle.fill")
-                            .font(.headline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                        Label(
+                            editingFarm == nil ? "Add farm" : "Save changes",
+                            systemImage: editingFarm == nil ? "plus.circle.fill" : "checkmark.circle.fill"
+                        )
+                        .font(.headline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.blue)
+                    .tint(editingFarm == nil ? .blue : .orange)
                     .disabled(!formValid)
 
                     if editingFarm != nil {
@@ -200,51 +259,58 @@ struct FarmSetupView: View {
     }
 
     private func farmCard(_ farm: LocalDataStore.Farm) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 12) {
+        let yards = yardsFor(farm.id)
 
-                // Farm header
-                HStack(alignment: .top, spacing: 10) {
-
-                    // ✅ Leaf badge (matches Add Farm card)
-                    ZStack {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 30, height: 30)
-                            .overlay(
-                                Circle().stroke(Color.white.opacity(0.16), lineWidth: 1)
-                            )
-
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
+        return GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header
+                HStack(alignment: .top, spacing: 12) {
+                    FarmHeroIcon(
+                        systemImage: "leaf.fill",
+                        tint: .green,
+                        size: 32
+                    )
                     .padding(.top, 1)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(farm.name)
                             .font(.headline)
 
                         HStack(spacing: 8) {
-                            Image(systemName: "number")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                            SmallInfoPill(
+                                title: farm.pic,
+                                systemImage: "number.circle",
+                                tint: .secondary
+                            )
 
-                            Text(farm.pic)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                            SmallInfoPill(
+                                title: "\(yards.count) yard" + (yards.count == 1 ? "" : "s"),
+                                systemImage: "mappin.and.ellipse",
+                                tint: .orange
+                            )
                         }
                     }
 
                     Spacer()
 
                     Menu {
-                        Button { startEdit(farm) } label: {
+                        Button {
+                            startEdit(farm)
+                        } label: {
                             Label("Edit farm", systemImage: "pencil")
                         }
 
-                        Button { startEditYards(for: farm) } label: {
-                            Label("Add yards", systemImage: "plus")
+                        Button {
+                            startEditYards(for: farm)
+                        } label: {
+                            Label("Quick add yards", systemImage: "plus")
+                        }
+
+                        Button {
+                            manageFarmID = farm.id
+                            showManageYards = true
+                        } label: {
+                            Label("Manage yards", systemImage: "slider.horizontal.3")
                         }
 
                         Divider()
@@ -252,102 +318,137 @@ struct FarmSetupView: View {
                         Button(role: .destructive) {
                             store.deleteFarm(farm.id)
                             if editingFarm?.id == farm.id { clearForm() }
-                            if yardPickFarmID == farm.id { yardPickFarmID = nil; yardsDraft = "" }
+                            if yardPickFarmID == farm.id {
+                                yardPickFarmID = nil
+                                yardsDraft = ""
+                            }
                             removeYards(for: farm.id)
                         } label: {
                             Label("Delete farm", systemImage: "trash")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis.circle.fill")
                             .font(.title3)
                             .foregroundStyle(.secondary)
-                            .padding(.leading, 6)
                     }
                     .buttonStyle(.plain)
                 }
-                Divider().opacity(0.12)
 
-                // Yard Locations section
-                VStack(alignment: .leading, spacing: 10) {
+                Divider().opacity(0.10)
 
-                    // ✅ Keep the label + put buttons on the right
-                    HStack {
+                // Yard section header
+                HStack(alignment: .center) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+
                         Text("Yard locations")
                             .font(.subheadline.weight(.semibold))
+                    }
 
-                        Spacer()
+                    Spacer()
 
-                        HStack(spacing: 8) {
-                            Button {
-                                startEditYards(for: farm)
-                            } label: {
-                                Label("Add", systemImage: "plus")
-                            }
-                            .glassButton(.compact)
-
-                            Button {
-                                manageFarmID = farm.id
-                                showManageYards = true
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .glassButton(.compact)
+                    HStack(spacing: 8) {
+                        Button {
+                            startEditYards(for: farm)
+                        } label: {
+                            Label("Add", systemImage: "plus")
                         }
-                    }
+                        .glassButton(.compact)
 
-                    let yards = yardsFor(farm.id)
-
-                    if yards.isEmpty {
-                        Text("No yards yet. Add names like “Main Yards”, “Drafting Race”, “Woolshed”.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        FlowChips(items: yards)
-                            .padding(.top, 2)
-
-                        Text("Tip: Tap Edit to rename, delete, or reorder yards.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 2)
-                    }
-
-                    // Inline editor (only expands for selected farm)
-                    if yardPickFarmID == farm.id {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Add yards (comma separated)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            glassField(
-                                icon: "mappin.and.ellipse",
-                                placeholder: "e.g. Main Yards, Drafting Race, Woolshed",
-                                text: $yardsDraft,
-                                autocaps: .words
-                            )
-
-                            HStack {
-                                Spacer()
-
-                                Button {
-                                    saveYards(for: farm.id, input: yardsDraft)
-                                    yardsDraft = ""
-                                    yardPickFarmID = nil
-                                } label: {
-                                    Label("Save", systemImage: "checkmark.circle.fill")
-                                        .font(.headline.weight(.semibold))
-                                        .padding(.horizontal, 18)
-                                        .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.blue)
-                                .disabled(yardsDraft.trimmed.isEmpty)
-                            }
+                        Button {
+                            manageFarmID = farm.id
+                            showManageYards = true
+                        } label: {
+                            Label("Manage", systemImage: "pencil")
                         }
-                        .padding(.top, 4)
+                        .glassButton(.compact)
                     }
+                }
+
+                if yards.isEmpty {
+                    InlineEmptyMessage(
+                        title: "No yard locations yet",
+                        subtitle: "Add names like Main Yards, Drafting Race or Woolshed.",
+                        systemImage: "tray",
+                        tint: .orange
+                    )
+                } else {
+                    FlowChips(items: yards)
+                        .padding(.top, 2)
+
+                    Text("Tip: Use Manage to rename, delete or reorder yards.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                }
+
+                if yardPickFarmID == farm.id {
+                    quickAddYardsCard(for: farm.id)
+                        .padding(.top, 2)
                 }
             }
         }
+    }
+
+    private func quickAddYardsCard(for farmID: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(.blue)
+
+                Text("Quick add yards")
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            Text("Enter one or more yard names separated by commas.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            glassField(
+                icon: "mappin.and.ellipse",
+                placeholder: "e.g. Main Yards, Drafting Race, Woolshed",
+                text: $yardsDraft,
+                autocaps: .words
+            )
+
+            HStack(spacing: 10) {
+                Button {
+                    yardsDraft = ""
+                    yardPickFarmID = nil
+                } label: {
+                    Text("Cancel")
+                        .font(.headline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                }
+                .glassButton(.fullWidth)
+
+                Button {
+                    saveYards(for: farmID, input: yardsDraft)
+                    yardsDraft = ""
+                    yardPickFarmID = nil
+                } label: {
+                    Label("Save yards", systemImage: "checkmark.circle.fill")
+                        .font(.headline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .disabled(yardsDraft.trimmed.isEmpty)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
     }
 
     // =====================================================
@@ -358,9 +459,15 @@ struct FarmSetupView: View {
         !farmName.trimmed.isEmpty && !farmPIC.trimmed.isEmpty
     }
 
+    private var totalYardCount: Int {
+        store.farms.reduce(0) { partial, farm in
+            partial + yardsFor(farm.id).count
+        }
+    }
+
     private func saveFarm() {
         let name = farmName.trimmed
-        let pic  = farmPIC.trimmed
+        let pic = farmPIC.trimmed
 
         if var farm = editingFarm {
             farm.name = name
@@ -377,7 +484,6 @@ struct FarmSetupView: View {
         editingFarm = farm
         farmName = farm.name
         farmPIC = farm.pic
-
         yardPickFarmID = nil
         yardsDraft = ""
     }
@@ -441,7 +547,6 @@ struct FarmSetupView: View {
         UserDefaults.standard.set(packed, forKey: yardsKey(farmID))
     }
 
-    // ✅ Write yards in the exact order provided (for Manage sheet)
     private func setYards(for farmID: UUID, yards: [String]) {
         let cleaned = yards
             .map { $0.trimmed }
@@ -474,9 +579,19 @@ struct FarmSetupView: View {
         autocaps: TextInputAutocapitalization
     ) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
 
             TextField(placeholder, text: text)
                 .textInputAutocapitalization(autocaps)
@@ -498,7 +613,7 @@ struct FarmSetupView: View {
 }
 
 // =====================================================
-// MARK: - Flow chips (wrap layout, self-sizing)
+// MARK: - Flow chips
 // =====================================================
 
 private struct FlowChips: View {
@@ -519,17 +634,17 @@ private struct YardChip: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "mappin")
+            Image(systemName: "mappin.circle.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.orange)
 
             Text(title)
-                .font(.body.weight(.semibold))   // ✅ slightly bigger still
+                .font(.body.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 14)                 // ✅ bigger pill
-        .padding(.vertical, 12)                   // ✅ bigger pill
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .background(.ultraThinMaterial, in: Capsule(style: .continuous))
         .overlay(
             Capsule(style: .continuous)
@@ -539,7 +654,154 @@ private struct YardChip: View {
 }
 
 // =====================================================
-// MARK: - Wrap Layout (no GeometryReader clipping)
+// MARK: - Helpers
+// =====================================================
+
+private struct FarmHeroIcon: View {
+    let systemImage: String
+    let tint: Color
+    var size: CGFloat = 36
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(tint.opacity(0.16))
+                .frame(width: size, height: size)
+                .overlay(
+                    Circle()
+                        .stroke(tint.opacity(0.22), lineWidth: 1)
+                )
+
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.40, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+    }
+}
+
+private struct FarmStatPill: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 30, height: 30)
+
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.headline)
+
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
+private struct SmallInfoPill: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+            Text(title)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
+private struct EmptyStateCard: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 40, height: 40)
+
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct InlineEmptyMessage: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// =====================================================
+// MARK: - Wrap Layout
 // =====================================================
 
 private struct FlowWrapLayout: Layout {
@@ -597,7 +859,7 @@ private struct FlowWrapLayout: Layout {
 }
 
 // =====================================================
-// MARK: - Manage yards sheet (rename/delete/reorder)
+// MARK: - Manage yards sheet
 // =====================================================
 
 private struct ManageYardsSheet: View {
@@ -620,36 +882,80 @@ private struct ManageYardsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 10) {
-                        TextField("Add new yard", text: $newYard)
-                            .textInputAutocapitalization(.words)
+            ZStack {
+                GlassBackground()
 
-                        Button { addNew() } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title3)
+                List {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 10) {
+                                FarmHeroIcon(
+                                    systemImage: "mappin.and.ellipse",
+                                    tint: .orange,
+                                    size: 34
+                                )
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Manage yards")
+                                        .font(.headline)
+
+                                    Text("Add, rename, delete or reorder yard locations for this farm.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
+
+                            HStack(spacing: 10) {
+                                TextField("Add new yard", text: $newYard)
+                                    .textInputAutocapitalization(.words)
+
+                                Button {
+                                    addNew()
+                                } label: {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title3)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(newYard.trimmed.isEmpty)
+                            }
+
+                            Text("Tip: Drag to reorder. Swipe left to delete.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(newYard.trimmed.isEmpty)
+                        .padding(.vertical, 4)
                     }
 
-                    Text("Tip: Drag to reorder. Swipe left to delete.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    Section("Yards") {
+                        if yards.isEmpty {
+                            Text("No yards added yet.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(yards.indices, id: \.self) { i in
+                                HStack(spacing: 10) {
+                                    Image(systemName: "line.3.horizontal")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.secondary)
 
-                Section("Yards") {
-                    ForEach(yards.indices, id: \.self) { i in
-                        TextField("Yard name", text: Binding(
-                            get: { yards[i] },
-                            set: { yards[i] = $0 }
-                        ))
-                        .textInputAutocapitalization(.words)
+                                    Image(systemName: "mappin.circle.fill")
+                                        .foregroundStyle(.orange)
+
+                                    TextField("Yard name", text: Binding(
+                                        get: { yards[i] },
+                                        set: { yards[i] = $0 }
+                                    ))
+                                    .textInputAutocapitalization(.words)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .onDelete(perform: delete)
+                            .onMove(perform: move)
+                        }
                     }
-                    .onDelete(perform: delete)
-                    .onMove(perform: move)
                 }
+                .scrollContentBackground(.hidden)
             }
             .environment(\.editMode, $editMode)
             .navigationTitle(farmName)

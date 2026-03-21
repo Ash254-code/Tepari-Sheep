@@ -22,7 +22,7 @@ final class DraftSettings: ObservableObject {
             case .timed:
                 return "Timed"
             case .whenJobsComplete:
-                return "When Jobs Complete"
+                return "Jobs Complete"
             }
         }
     }
@@ -31,23 +31,25 @@ final class DraftSettings: ObservableObject {
     // MARK: - Gate behaviour
     // =====================================================
 
-    /// Time after weight lock before gate moves.
+    /// Time after trigger/weight lock before gate moves.
     @Published var triggerDelaySeconds: Double = 1.0 {
         didSet { triggerDelaySeconds = clamp(triggerDelaySeconds, 0.0, 5.0) }
     }
 
-    /// Time gate takes to physically move to position.
+    /// Time gate takes to physically move to target position.
     @Published var gateMoveDurationSeconds: Double = 0.8 {
         didSet { gateMoveDurationSeconds = clamp(gateMoveDurationSeconds, 0.1, 5.0) }
     }
 
-    /// Used ONLY when autoReleaseMode == .timed
-    /// How long gate stays open before returning.
-    @Published var gateHoldSeconds: Double = 1.5 {
-        didSet { gateHoldSeconds = clamp(gateHoldSeconds, 0.1, 10.0) }
+    /// Used only when autoReleaseMode == .timed
+    /// How long the gate stays in drafted position before release.
+    @Published var gateHoldSeconds: Double = 0.0 {
+        didSet { gateHoldSeconds = clamp(gateHoldSeconds, 0.0, 10.0) }
     }
 
-    /// Time to return to home position.
+    /// Time to return to home position after release.
+    /// Kept for calibration/UI clarity even if the current controller
+    /// flow returns using gateMoveDurationSeconds.
     @Published var gateReturnSeconds: Double = 0.8 {
         didSet { gateReturnSeconds = clamp(gateReturnSeconds, 0.1, 5.0) }
     }
@@ -58,19 +60,22 @@ final class DraftSettings: ObservableObject {
 
     /// Master control for release behaviour.
     /// - off: animal stays held until another command or manual release
-    /// - timed: gate returns automatically after `gateHoldSeconds`
+    /// - timed: release automatically after `gateHoldSeconds`
     /// - whenJobsComplete: release only after required session jobs are done
-    @Published var autoReleaseMode: AutoReleaseMode = .off
+    @Published var autoReleaseMode: AutoReleaseMode = .timed
 
-    /// Backward-compatibility helper for older code paths.
-    var autoReleaseEnabled: Bool {
-        autoReleaseMode != .off
+    var isTimedAutoRelease: Bool {
+        autoReleaseMode == .timed
     }
 
-    /// When releasing, return to home/centre position.
+    var isJobsCompleteAutoRelease: Bool {
+        autoReleaseMode == .whenJobsComplete
+    }
+
+    /// Kept for compatibility, but real animal release now uses the release relay.
     @Published var releaseToHomePosition: Bool = true
 
-    /// Optional delay before release happens after jobs complete.
+    /// Optional delay before release happens after manual/explicit release call.
     @Published var releaseDelaySeconds: Double = 0.0 {
         didSet { releaseDelaySeconds = clamp(releaseDelaySeconds, 0.0, 5.0) }
     }
@@ -82,7 +87,6 @@ final class DraftSettings: ObservableObject {
     // MARK: - Default / startup behaviour
     // =====================================================
 
-    /// When system powers up or connects.
     @Published var startInHomePosition: Bool = true
 
     // =====================================================
@@ -90,6 +94,7 @@ final class DraftSettings: ObservableObject {
     // =====================================================
 
     /// Extra hold time when using manual test buttons.
+    /// Manual tests should pulse and return regardless of auto release mode.
     @Published var manualTestHoldSeconds: Double = 2.0 {
         didSet { manualTestHoldSeconds = clamp(manualTestHoldSeconds, 0.1, 20.0) }
     }
@@ -98,29 +103,18 @@ final class DraftSettings: ObservableObject {
     // MARK: - Safety
     // =====================================================
 
-    /// Max time a movement is allowed before timeout fault.
     @Published var movementTimeoutSeconds: Double = 5.0 {
         didSet { movementTimeoutSeconds = clamp(movementTimeoutSeconds, 1.0, 30.0) }
     }
 
-    /// Prevent new draft while gate moving.
     @Published var blockWhileMoving: Bool = true
 
     // =====================================================
-    // MARK: - Logical → Physical Gate Mapping (MID-SESSION EDITABLE)
+    // MARK: - Logical → Physical Gate Mapping
     // =====================================================
-    /// ✅ This is the layer that lets you re-route outcomes to different gates
-    /// during a session without touching rules.
-    ///
-    /// Example:
-    /// - Preg Twins used to go Right
-    /// - Change `twinGate` to `.farRight`
-    /// - Next twin immediately goes Far Right
-    ///
-    /// This same mapping can be used for ANY draft session (not just preg).
+
     @Published var gateMap: DraftGateMap = DraftGateMap()
 
-    /// ✅ Convenience presets (optional helpers)
     func setThreeGateDefault() {
         gateMap.empty = .left
         gateMap.single = .straight
@@ -131,8 +125,6 @@ final class DraftSettings: ObservableObject {
     }
 
     func setFourGatePregSuggested() {
-        // Suggested if you want twins isolated:
-        // empty → left, single → straight, twin → farRight
         gateMap.empty = .left
         gateMap.single = .straight
         gateMap.twin = .farRight

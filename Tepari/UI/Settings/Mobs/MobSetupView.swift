@@ -12,7 +12,7 @@ enum MobColour: String, CaseIterable, Identifiable {
     case purple = "Purple"
     case yellow = "Yellow"
     case red = "Red"
-    case blue = "Blue"        // using your “Blue” (works for the yearly cycle)
+    case blue = "Blue"
 
     var id: String { rawValue }
 
@@ -42,13 +42,8 @@ enum MobColour: String, CaseIterable, Identifiable {
 // =====================================================
 // MARK: - Global Year → Colour Cycle (shared)
 // =====================================================
-//
-// Cycle repeats every 8 years, anchored so:
-// (currentYear + 1) is ALWAYS Green
-//
-enum YearColourCycle {
 
-    // Order must match your mapping above
+enum YearColourCycle {
     static let cycle: [MobColour] = [
         .green, .orange, .white, .black, .blue, .red, .yellow, .purple
     ]
@@ -122,60 +117,48 @@ private struct YearColourPickerSheet: View {
             ZStack {
                 GlassBackground()
 
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Select Year Colour")
-                            .font(.headline)
+                ScrollView {
+                    VStack(spacing: 14) {
+                        SettingsHeroCard(
+                            title: "Select Year Colour",
+                            subtitle: "Choose the ear tag year. The mob colour is assigned automatically from the yearly cycle.",
+                            systemImage: "paintpalette.fill",
+                            tint: .orange
+                        )
 
-                        Text("Choose the ear tag year. Colour is auto-assigned.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Year Options")
+                                    .font(.headline)
 
-                        Divider().opacity(0.22)
+                                Text("Tap a year to use its mapped colour.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
 
-                        VStack(spacing: 8) {
-                            ForEach(years, id: \.self) { y in
-                                let c = YearColourCycle.colour(for: y, anchorYear: anchorYear)
+                                Divider().opacity(0.18)
 
-                                Button {
-                                    selectedYear = y
-                                    dismiss()
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Circle()
-                                            .fill(c.color)
-                                            .frame(width: 12, height: 12)
+                                VStack(spacing: 10) {
+                                    ForEach(years, id: \.self) { y in
+                                        let c = YearColourCycle.colour(for: y, anchorYear: anchorYear)
 
-                                        Text(y, format: .number.grouping(.never))
-                                            .font(.headline.weight(.semibold))
-
-                                        Text("— \(c.rawValue)")
-                                            .foregroundStyle(.secondary)
-
-                                        Spacer()
-
-                                        if y == selectedYear {
-                                            Image(systemName: "checkmark")
-                                                .font(.headline.weight(.semibold))
+                                        Button {
+                                            selectedYear = y
+                                            dismiss()
+                                        } label: {
+                                            YearColourOptionRow(
+                                                year: y,
+                                                colour: c,
+                                                isSelected: y == selectedYear
+                                            )
                                         }
+                                        .buttonStyle(.plain)
                                     }
-                                    .padding(.vertical, 10)
-                                    .padding(.horizontal, 12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .fill(Color.white.opacity(0.06))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                                    )
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
+                    .padding(16)
                 }
-                .padding(16)
             }
             .navigationTitle("Colour")
             .navigationBarTitleDisplayMode(.inline)
@@ -197,7 +180,7 @@ struct MobSetupView: View {
     @Environment(\.dismiss) private var dismiss
 
     let farmID: UUID
-    let editMobID: UUID?   // ✅ NEW (optional preselect for edit)
+    let editMobID: UUID?
 
     init(farmID: UUID, editMobID: UUID? = nil) {
         self.farmID = farmID
@@ -205,10 +188,8 @@ struct MobSetupView: View {
     }
 
     @State private var mobName: String = ""
-
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var showYearPicker = false
-
     @State private var editingMob: LocalDataStore.Mob? = nil
 
     private var currentYear: Int {
@@ -227,27 +208,53 @@ struct MobSetupView: View {
         YearColourCycle.colour(for: selectedYear, anchorYear: anchorYear)
     }
 
+    private var farmName: String {
+        store.farms.first(where: { $0.id == farmID })?.name ?? "Farm"
+    }
+
     var body: some View {
         ZStack {
             GlassBackground()
 
             ScrollView {
                 VStack(spacing: 14) {
+                    SettingsHeroCard(
+                        title: editingMob == nil ? "Mob Setup" : "Edit Mob",
+                        subtitle: editingMob == nil
+                            ? "Create mobs and assign the correct year colour for tagging."
+                            : "Update this mob name or change its year colour.",
+                        systemImage: "tag.fill",
+                        tint: .green
+                    )
 
-                    // =====================================================
-                    // Add / Edit Mob
-                    // =====================================================
                     GlassCard {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .center, spacing: 12) {
+                                SettingsMiniIcon(systemImage: "shippingbox.fill", tint: .green)
 
-                            Text(editingMob == nil ? "Add Mob" : "Edit Mob")
-                                .font(.headline)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(editingMob == nil ? "Add Mob" : "Edit Mob")
+                                        .font(.headline)
 
-                            TextField("Mob name", text: $mobName)
-                                .textFieldStyle(.roundedBorder)
+                                    Text(farmName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
 
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Colour")
+                                Text("Mob Name")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                TextField("Mob name", text: $mobName)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Year Colour")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
 
@@ -257,43 +264,57 @@ struct MobSetupView: View {
                                     }
                                     showYearPicker = true
                                 } label: {
-                                    HStack(spacing: 10) {
-                                        Circle()
-                                            .fill(selectedColour.color)
-                                            .frame(width: 10, height: 10)
+                                    HStack(spacing: 12) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                .fill(selectedColour.color.opacity(0.18))
+                                                .frame(width: 34, height: 34)
 
-                                        Text("Colour")
-                                            .font(.caption.weight(.semibold))
+                                            Circle()
+                                                .fill(selectedColour.color)
+                                                .frame(width: 14, height: 14)
+                                        }
 
-                                        Text("\(selectedYear.formatted(.number.grouping(.never))) — \(selectedColour.rawValue)")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Selected Colour")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(.primary)
+
+                                            Text("\(selectedYear.formatted(.number.grouping(.never))) — \(selectedColour.rawValue)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
 
                                         Spacer()
 
-                                        Image(systemName: "chevron.up.chevron.down")
+                                        Image(systemName: "chevron.right")
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(.secondary)
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 10)
                                     .background(.ultraThinMaterial)
-                                    .clipShape(Capsule(style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                     .overlay(
-                                        Capsule(style: .continuous)
-                                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
                             }
 
                             if !mobName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                let previewLabel = "\(mobName.trimmingCharacters(in: .whitespacesAndNewlines))-\(selectedYear)"
-                                MobNamePill(
-                                    name: previewLabel,
-                                    colour: selectedColour
-                                )
-                                .padding(.top, 2)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Preview")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+
+                                    let previewLabel = "\(mobName.trimmingCharacters(in: .whitespacesAndNewlines))-\(selectedYear)"
+                                    MobNamePill(
+                                        name: previewLabel,
+                                        colour: selectedColour
+                                    )
+                                }
                             }
 
                             HStack(spacing: 10) {
@@ -313,24 +334,39 @@ struct MobSetupView: View {
                         }
                     }
 
-                    // =====================================================
-                    // Existing mobs (for this farm)
-                    // =====================================================
                     GlassCard {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Existing Mobs")
-                                .font(.headline)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .center, spacing: 12) {
+                                SettingsMiniIcon(systemImage: "list.bullet.rectangle.portrait.fill", tint: .blue)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Existing Mobs")
+                                        .font(.headline)
+
+                                    Text("Tap Edit or delete a mob from this farm.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
 
                             let list = store.mobs(for: farmID)
 
                             if list.isEmpty {
-                                Text("No mobs yet for this farm.")
-                                    .foregroundStyle(.secondary)
+                                EmptySettingsStateRow(
+                                    title: "No mobs yet",
+                                    subtitle: "Add your first mob above to get started.",
+                                    systemImage: "tray"
+                                )
                             } else {
                                 VStack(spacing: 10) {
                                     ForEach(list) { mob in
                                         mobRow(mob)
-                                        Divider().opacity(0.18)
+
+                                        if mob.id != list.last?.id {
+                                            Divider().opacity(0.14)
+                                        }
                                     }
                                 }
                             }
@@ -341,7 +377,6 @@ struct MobSetupView: View {
             }
         }
         .onAppear {
-            // ✅ If opened from overview in edit mode, preselect that mob.
             guard let editMobID else { return }
             if let mob = store.mobs(for: farmID).first(where: { $0.id == editMobID }) {
                 startEdit(mob)
@@ -378,19 +413,48 @@ struct MobSetupView: View {
         let label = year == nil ? mob.name : "\(mob.name)-\(year!)"
 
         return HStack(spacing: 12) {
-            MobNamePill(name: label, colour: colour)
+            VStack(alignment: .leading, spacing: 8) {
+                MobNamePill(name: label, colour: colour)
 
-            Spacer()
-
-            Button("Edit") { startEdit(mob) }
-                .buttonStyle(.plain)
-
-            Button(role: .destructive) {
-                store.deleteMob(mob.id)
-            } label: {
-                Image(systemName: "trash")
+                Text("Tap Edit to update this mob")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 10) {
+                Button {
+                    startEdit(mob)
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                )
+
+                Button(role: .destructive) {
+                    store.deleteMob(mob.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle()
+                                .fill(Color.red.opacity(0.16))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -420,8 +484,6 @@ struct MobSetupView: View {
     private func startEdit(_ mob: LocalDataStore.Mob) {
         editingMob = mob
         mobName = mob.name
-
-        // Best-effort: infer the year from the saved colour, default to currentYear if unknown.
         selectedYear = inferredYearFromColourHex(mob.colorHex) ?? currentYear
     }
 
@@ -431,12 +493,6 @@ struct MobSetupView: View {
         selectedYear = currentYear
     }
 }
-
-// =====================================================
-// MARK: - Mobs Overview (grouped by farm)
-// =====================================================
-
-
 
 // =====================================================
 // MARK: - Farm Card (with mobs inside)
@@ -468,16 +524,19 @@ private struct FarmMobsCard: View {
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(farmName)
-                            .font(.headline.weight(.semibold))
+                    HStack(spacing: 12) {
+                        SettingsMiniIcon(systemImage: "building.2.crop.circle.fill", tint: .green)
 
-                        if !farmPIC.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("PIC: \(farmPIC)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(farmName)
+                                .font(.headline.weight(.semibold))
+
+                            if !farmPIC.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("PIC: \(farmPIC)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
@@ -497,8 +556,11 @@ private struct FarmMobsCard: View {
                 Divider().opacity(0.18)
 
                 if mobs.isEmpty {
-                    Text("No mobs yet for this farm.")
-                        .foregroundStyle(.secondary)
+                    EmptySettingsStateRow(
+                        title: "No mobs yet",
+                        subtitle: "Add a mob for this farm to start grouping animals.",
+                        systemImage: "tray"
+                    )
                 } else {
                     FlowWrapLayout(spacing: 10, lineSpacing: 10) {
                         ForEach(mobs) { mob in
@@ -544,7 +606,6 @@ private struct FlowWrapLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) -> CGSize {
-
         let maxWidth = proposal.width ?? .greatestFiniteMagnitude
 
         var x: CGFloat = 0
@@ -596,6 +657,137 @@ private struct FlowWrapLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+// =====================================================
+// MARK: - Styling helpers
+// =====================================================
+
+private struct SettingsHeroCard: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        GlassCard {
+            HStack(spacing: 14) {
+                SettingsMiniIcon(
+                    systemImage: systemImage,
+                    tint: tint,
+                    size: 52,
+                    iconFont: .title2.weight(.semibold)
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+            }
+        }
+    }
+}
+
+private struct SettingsMiniIcon: View {
+    let systemImage: String
+    let tint: Color
+    var size: CGFloat = 38
+    var iconFont: Font = .headline.weight(.semibold)
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(tint.opacity(0.16))
+                .frame(width: size, height: size)
+
+            Image(systemName: systemImage)
+                .font(iconFont)
+                .foregroundStyle(tint)
+        }
+    }
+}
+
+private struct EmptySettingsStateRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SettingsMiniIcon(systemImage: systemImage, tint: .secondary)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct YearColourOptionRow: View {
+    let year: Int
+    let colour: MobColour
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(colour.color.opacity(0.18))
+                    .frame(width: 40, height: 40)
+
+                Circle()
+                    .fill(colour.color)
+                    .frame(width: 16, height: 16)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(year, format: .number.grouping(.never))
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Text(colour.rawValue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "circle")
+                    .font(.headline)
+                    .foregroundStyle(.secondary.opacity(0.5))
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(isSelected ? 0.09 : 0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? Color.white.opacity(0.18) : Color.white.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 

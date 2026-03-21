@@ -9,7 +9,7 @@ struct AnimalDataView: View {
 
     // MARK: - Filters
     @State private var selectedFarmID: UUID? = nil   // nil = All Farms
-    @State private var filterMobID: UUID? = nil
+    @State private var filterMobName: String? = nil
     @State private var filterClass: String? = nil
     @State private var searchText: String = ""
     @State private var showSearchField: Bool = false
@@ -27,48 +27,52 @@ struct AnimalDataView: View {
     private var isWideLayout: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
-        animalListView()
-            .navigationTitle("Animal Data")
-            .navigationBarTitleDisplayMode(.inline)
-            .alert(deleteConfirmationTitle, isPresented: $showDeleteConfirmation) {
-                Button("Delete", role: .destructive) {
-                    deleteSelectedAnimals()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text(deleteConfirmationMessage)
+        ZStack {
+            GlassBackground()
+
+            animalListView()
+        }
+        .navigationTitle("Animal Data")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(deleteConfirmationTitle, isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                deleteSelectedAnimals()
             }
-            .sheet(isPresented: $coordinator.showIndividualAnimalView) {
-                IndividualAnimalView()
-                    .environmentObject(store)
-                    .environmentObject(coordinator)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(deleteConfirmationMessage)
+        }
+        .sheet(isPresented: $coordinator.showIndividualAnimalView) {
+            IndividualAnimalView()
+                .environmentObject(store)
+                .environmentObject(coordinator)
+        }
+        .confirmationDialog("Sort Animals", isPresented: $showSortSheet, titleVisibility: .visible) {
+            ForEach(SortKey.allCases) { key in
+                Button(sortKey == key ? "✓ \(key.rawValue)" : key.rawValue) {
+                    sortKey = key
+                }
             }
-            .confirmationDialog("Sort Animals", isPresented: $showSortSheet, titleVisibility: .visible) {
-                ForEach(SortKey.allCases) { key in
-                    Button(sortKey == key ? "✓ \(key.rawValue)" : key.rawValue) {
-                        sortKey = key
-                    }
-                }
 
-                Divider()
+            Divider()
 
-                Button(sortAscending ? "Ascending ✓" : "Ascending") {
-                    sortAscending = true
-                }
+            Button(sortAscending ? "Ascending ✓" : "Ascending") {
+                sortAscending = true
+            }
 
-                Button(!sortAscending ? "Descending ✓" : "Descending") {
+            Button(!sortAscending ? "Descending ✓" : "Descending") {
+                sortAscending = false
+            }
+
+            if sortKey != .updatedAt || sortAscending {
+                Button("Reset Sort", role: .destructive) {
+                    sortKey = .updatedAt
                     sortAscending = false
                 }
-
-                if sortKey != .updatedAt || sortAscending {
-                    Button("Reset Sort", role: .destructive) {
-                        sortKey = .updatedAt
-                        sortAscending = false
-                    }
-                }
-
-                Button("Cancel", role: .cancel) { }
             }
+
+            Button("Cancel", role: .cancel) { }
+        }
     }
 }
 
@@ -101,8 +105,21 @@ private extension AnimalDataView {
         let eidRaw: String
     }
 
+    struct MobFilterOption: Identifiable, Hashable {
+        let id: String
+        let displayName: String
+        let normalizedName: String
+        let farmCount: Int
+    }
+
     var normalizedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    func normalizedMobName(_ value: String?) -> String {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
     }
 
     var farmByID: [UUID: LocalDataStore.Farm] {
@@ -124,16 +141,51 @@ private extension AnimalDataView {
                 if let farmID = selectedFarmID { return mob.farmID == farmID }
                 return true
             }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .sorted { lhs, rhs in
+                let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cmp = lhsName.localizedCaseInsensitiveCompare(rhsName)
+                if cmp != .orderedSame { return cmp == .orderedAscending }
+
+                let lhsFarm = farmByID[lhs.farmID]?.name ?? ""
+                let rhsFarm = farmByID[rhs.farmID]?.name ?? ""
+                return lhsFarm.localizedCaseInsensitiveCompare(rhsFarm) == .orderedAscending
+            }
     }
 
-    var validMobIDs: Set<UUID> {
-        Set(mobsScope.map(\.id))
+    var mobFilterOptions: [MobFilterOption] {
+        let grouped = Dictionary(grouping: mobsScope) { mob in
+            normalizedMobName(mob.name)
+        }
+
+        return grouped
+            .compactMap { key, mobs -> MobFilterOption? in
+                guard !key.isEmpty else { return nil }
+                let sorted = mobs.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                let displayName = sorted.first?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown Mob"
+                let farmCount = Set(mobs.map(\.farmID)).count
+                return MobFilterOption(
+                    id: key,
+                    displayName: displayName,
+                    normalizedName: key,
+                    farmCount: farmCount
+                )
+            }
+            .sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
     }
 
-    var effectiveFilterMobID: UUID? {
-        guard let filterMobID else { return nil }
-        return validMobIDs.contains(filterMobID) ? filterMobID : nil
+    var validMobNames: Set<String> {
+        Set(mobFilterOptions.map(\.normalizedName))
+    }
+
+    var effectiveFilterMobName: String? {
+        guard let filterMobName else { return nil }
+        let normalized = normalizedMobName(filterMobName)
+        return validMobNames.contains(normalized) ? normalized : nil
     }
 
     var baseAnimals: [LocalDataStore.AnimalProfile] {
@@ -145,8 +197,11 @@ private extension AnimalDataView {
 
     var animalsAfterFarmAndMob: [LocalDataStore.AnimalProfile] {
         baseAnimals.filter { animal in
-            if let mobID = effectiveFilterMobID { return animal.mobID == mobID }
-            return true
+            guard let filterMobName = effectiveFilterMobName else { return true }
+            let animalMobName = animal.mobID
+                .flatMap { mobByID[$0]?.name }
+                .map(normalizedMobName) ?? ""
+            return animalMobName == filterMobName
         }
     }
 
@@ -230,7 +285,7 @@ private extension AnimalDataView {
     var activeFilterCount: Int {
         var count = 0
         if selectedFarmID != nil { count += 1 }
-        if effectiveFilterMobID != nil { count += 1 }
+        if effectiveFilterMobName != nil { count += 1 }
         if filterClass != nil { count += 1 }
         if !normalizedSearchText.isEmpty { count += 1 }
         if sortKey != .updatedAt || sortAscending { count += 1 }
@@ -249,15 +304,15 @@ private extension AnimalDataView {
     }
 
     var cardFill: Color {
-        Color(uiColor: .tertiarySystemGroupedBackground)
+        colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72)
     }
 
     var softFill: Color {
-        Color(uiColor: .secondarySystemGroupedBackground)
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045)
     }
 
     var softerFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.025)
     }
 
     var selectedPillFill: Color {
@@ -345,10 +400,44 @@ private extension AnimalDataView {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
     }
 
     var headerCard: some View {
         VStack(alignment: .leading, spacing: 14) {
+
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.blue.opacity(0.16))
+                        .frame(width: 48, height: 48)
+
+                    Image(systemName: "sheep.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Animal Data")
+                        .font(.headline)
+
+                    Text("\(effectiveFilteredAnimals.count) matching animals")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor)
+                        .clipShape(Capsule())
+                }
+            }
 
             topControlsRow
 
@@ -359,13 +448,13 @@ private extension AnimalDataView {
 
             filterSectionCard(
                 title: "Farm",
-                icon: "building.2.crop.circle",
+                icon: "building.2.crop.circle.fill",
+                iconTint: .orange,
                 currentValue: farmFilterLabel()
             ) {
                 filterPillRow {
                     filterCapsulePill(title: "All", isSelected: selectedFarmID == nil) {
                         selectedFarmID = nil
-                        filterMobID = nil
                         filterClass = nil
                     }
 
@@ -375,11 +464,6 @@ private extension AnimalDataView {
                             isSelected: selectedFarmID == farm.id
                         ) {
                             selectedFarmID = farm.id
-
-                            if let currentMobID = filterMobID,
-                               !store.mobs.contains(where: { $0.id == currentMobID && $0.farmID == farm.id }) {
-                                filterMobID = nil
-                            }
 
                             if let currentClass = filterClass,
                                !classOptions.contains(where: { $0.caseInsensitiveCompare(currentClass) == .orderedSame }) {
@@ -393,23 +477,24 @@ private extension AnimalDataView {
             filterSectionCard(
                 title: "Mob",
                 icon: "person.3.fill",
+                iconTint: .green,
                 currentValue: mobFilterLabel()
             ) {
                 filterPillRow {
-                    filterCapsulePill(title: "All", isSelected: effectiveFilterMobID == nil) {
-                        filterMobID = nil
+                    filterCapsulePill(title: "All", isSelected: effectiveFilterMobName == nil) {
+                        filterMobName = nil
                         if let currentClass = filterClass,
                            !classOptions.contains(where: { $0.caseInsensitiveCompare(currentClass) == .orderedSame }) {
                             filterClass = nil
                         }
                     }
 
-                    ForEach(mobsScope) { mob in
+                    ForEach(mobFilterOptions) { option in
                         filterCapsulePill(
-                            title: mob.name,
-                            isSelected: effectiveFilterMobID == mob.id
+                            title: option.displayName,
+                            isSelected: effectiveFilterMobName == option.normalizedName
                         ) {
-                            filterMobID = mob.id
+                            filterMobName = option.displayName
                             if let currentClass = filterClass,
                                !classOptions.contains(where: { $0.caseInsensitiveCompare(currentClass) == .orderedSame }) {
                                 filterClass = nil
@@ -422,6 +507,7 @@ private extension AnimalDataView {
             filterSectionCard(
                 title: "Class",
                 icon: "tag.fill",
+                iconTint: .purple,
                 currentValue: classFilterLabel()
             ) {
                 filterPillRow {
@@ -445,18 +531,23 @@ private extension AnimalDataView {
             }
         }
         .padding(14)
-        .background(cardFill)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.10 : 0.22))
+        )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     var topControlsRow: some View {
         HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Filter & Sort")
-                    .font(.headline)
-
-                Text("\(effectiveFilteredAnimals.count) matching animals")
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal.decrease.circle.fill")
                     .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Text("Filter & Sort")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
@@ -528,15 +619,22 @@ private extension AnimalDataView {
     func filterSectionCard<Content: View>(
         title: String,
         icon: String,
+        iconTint: Color,
         currentValue: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    Image(systemName: icon)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(iconTint.opacity(0.14))
+                            .frame(width: 28, height: 28)
+
+                        Image(systemName: icon)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(iconTint)
+                    }
 
                     Text(title)
                         .font(.subheadline.weight(.semibold))
@@ -624,7 +722,7 @@ private extension AnimalDataView {
                         if selectedFarmID != nil {
                             activeMiniPill(text: farmFilterLabel())
                         }
-                        if effectiveFilterMobID != nil {
+                        if effectiveFilterMobName != nil {
                             activeMiniPill(text: mobFilterLabel())
                         }
                         if let filterClass, !filterClass.isEmpty {
@@ -718,7 +816,11 @@ private extension AnimalDataView {
             }
         }
         .padding(14)
-        .background(cardFill)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.10 : 0.22))
+        )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -786,8 +888,8 @@ private extension AnimalDataView {
     }
 
     func mobFilterLabel() -> String {
-        guard let mobID = effectiveFilterMobID else { return "All Mobs" }
-        return mobsScope.first(where: { $0.id == mobID })?.name ?? "Unknown Mob"
+        guard let selected = effectiveFilterMobName else { return "All Mobs" }
+        return mobFilterOptions.first(where: { $0.normalizedName == selected })?.displayName ?? "Unknown Mob"
     }
 
     func classFilterLabel() -> String {
@@ -797,7 +899,7 @@ private extension AnimalDataView {
 
     func clearSecondaryFilters() {
         selectedFarmID = nil
-        filterMobID = nil
+        filterMobName = nil
         filterClass = nil
         searchText = ""
         showSearchField = false
@@ -835,7 +937,7 @@ private extension AnimalDataView {
 // MARK: - Animal row
 
 private extension AnimalDataView {
-    
+
     func selectableAnimalRow(
         _ animal: LocalDataStore.AnimalProfile,
         farmByID: [UUID: LocalDataStore.Farm],
@@ -846,7 +948,7 @@ private extension AnimalDataView {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
                 .foregroundStyle(isSelected ? .blue : .secondary)
-            
+
             animalRow(
                 animal,
                 farmByID: farmByID,
@@ -855,22 +957,28 @@ private extension AnimalDataView {
         }
         .padding(.vertical, 2)
     }
-    
+
     func animalRow(
         _ animal: LocalDataStore.AnimalProfile,
         farmByID: [UUID: LocalDataStore.Farm],
         mobByID: [UUID: LocalDataStore.Mob]
     ) -> some View {
-        
+
         let farmName = farmByID[animal.farmID]?.name ?? "Unknown Farm"
-        
+
         let className: String = {
             let trimmed = animal.klass?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmed.isEmpty ? "No Class" : trimmed
         }()
-        
+
+        let mobName: String = {
+            let raw = animal.mobID.flatMap { mobByID[$0]?.name } ?? ""
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "No Mob" : trimmed
+        }()
+
         let yearText = "Year —"
-        
+
         let totalLambsText: String = {
             let total = store.totalLambsForAnimal(
                 farmID: animal.farmID,
@@ -878,9 +986,9 @@ private extension AnimalDataView {
             )
             return "Lambs \(total)"
         }()
-        
+
         return VStack(alignment: .leading, spacing: 8) {
-            
+
             HStack(alignment: .center, spacing: 10) {
                 Text(animal.eidRaw)
                     .font(.headline)
@@ -891,17 +999,18 @@ private extension AnimalDataView {
                     .padding(.vertical, 10)
                     .background(eidPillColor(for: animal, mobByID: mobByID))
                     .clipShape(Capsule())
-                
+
                 Spacer(minLength: 8)
-                
+
                 Text(farmName)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            
+
             HStack(alignment: .center, spacing: 10) {
                 HStack(spacing: 8) {
+                    detailMiniPill(mobName)
                     detailMiniPill(yearText)
                     detailMiniPill(className)
                     detailMiniPill(totalLambsText)
@@ -909,9 +1018,9 @@ private extension AnimalDataView {
                 .padding(8)
                 .background(softFill)
                 .clipShape(Capsule())
-                
+
                 Spacer(minLength: 8)
-                
+
                 Text(lastScanText(for: animal))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -922,7 +1031,7 @@ private extension AnimalDataView {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
-    
+
     func detailMiniPill(_ text: String) -> some View {
         Text(text)
             .font(.subheadline.weight(.medium))
@@ -933,7 +1042,7 @@ private extension AnimalDataView {
             .background(softerFill)
             .clipShape(Capsule())
     }
-    
+
     func eidPillColor(
         for animal: LocalDataStore.AnimalProfile,
         mobByID: [UUID: LocalDataStore.Mob]
@@ -942,15 +1051,15 @@ private extension AnimalDataView {
               let mob = mobByID[mobID] else {
             return softFill
         }
-        
+
         let hex = mob.colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !hex.isEmpty, let color = colorFromHex(hex) else {
             return softFill
         }
-        
+
         return color
     }
-    
+
     func eidPillTextColor(
         for animal: LocalDataStore.AnimalProfile,
         mobByID: [UUID: LocalDataStore.Mob]
@@ -959,22 +1068,22 @@ private extension AnimalDataView {
               let mob = mobByID[mobID] else {
             return .primary
         }
-        
+
         let hex = mob.colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
         return hex.isEmpty ? .primary : .white
     }
-    
+
     func colorFromHex(_ hex: String) -> Color? {
         var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         cleaned = cleaned.replacingOccurrences(of: "#", with: "")
-        
+
         guard cleaned.count == 6 || cleaned.count == 8,
               let value = UInt64(cleaned, radix: 16) else {
             return nil
         }
-        
+
         let r, g, b, a: Double
-        
+
         if cleaned.count == 8 {
             a = Double((value & 0xFF000000) >> 24) / 255.0
             r = Double((value & 0x00FF0000) >> 16) / 255.0
@@ -986,12 +1095,11 @@ private extension AnimalDataView {
             g = Double((value & 0x00FF00) >> 8) / 255.0
             b = Double(value & 0x0000FF) / 255.0
         }
-        
+
         return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
-    
+
     func lastScanText(for animal: LocalDataStore.AnimalProfile) -> String {
         "Last scan \(animal.updatedAt.formatted(date: .abbreviated, time: .omitted))"
     }
 }
-
