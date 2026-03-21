@@ -3,7 +3,7 @@ import Combine
 import AVFoundation
 import AudioToolbox
 
-final class AudioManager: ObservableObject {
+final class AudioManager: NSObject, ObservableObject {
     static let shared = AudioManager()
 
     let objectWillChange = ObservableObjectPublisher()
@@ -11,7 +11,19 @@ final class AudioManager: ObservableObject {
     private let speaker = SpeechAnnouncer()
     private var player: AVAudioPlayer?
 
-    private init() {}
+    private enum QueueItem {
+        case speech(String)
+        case clip(UserAudioClip)
+        case documentClip(String)
+        case beep
+    }
+
+    private var queue: [QueueItem] = []
+    private var isPlayingQueueItem = false
+
+    private override init() {
+        super.init()
+    }
 
     // =====================================================
     // MARK: - Legacy simple sounds (fallback only)
@@ -34,23 +46,21 @@ final class AudioManager: ObservableObject {
     func play(_ sound: Sound, enabled: Bool) {
         guard enabled else { return }
 
-        stopCurrentPlaybackIfNeeded()
-
         switch sound {
         case .scanOK:
-            playDefaultBeep()
+            enqueue(.beep)
 
         case .weightOK:
-            playDefaultBeep()
+            enqueue(.beep)
 
         case .newAnimal:
-            speaker.say("New Animal")
+            enqueue(.speech("New Animal"))
 
         case .readOK:
-            speaker.say("Read OK")
+            enqueue(.speech("Read OK"))
 
         case .reScan:
-            speaker.say("Re-Scan")
+            enqueue(.speech("Re-Scan"))
         }
     }
 
@@ -79,25 +89,23 @@ final class AudioManager: ObservableObject {
         case .speech:
             if let phrase = settings.phraseToSpeak(for: trigger),
                !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stopCurrentPlaybackIfNeeded()
-                speaker.say(phrase)
+                enqueue(.speech(phrase))
             } else {
-                playDefaultBeep()
+                enqueue(.beep)
             }
 
         case .clip:
             guard let clip = settings.clip(for: config.clipID) else {
                 if let phrase = settings.phraseToSpeak(for: trigger),
                    !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    stopCurrentPlaybackIfNeeded()
-                    speaker.say(phrase)
+                    enqueue(.speech(phrase))
                 } else {
-                    playDefaultBeep()
+                    enqueue(.beep)
                 }
                 return
             }
 
-            playUserClip(clip)
+            enqueue(.clip(clip))
         }
     }
 
@@ -107,25 +115,43 @@ final class AudioManager: ObservableObject {
 
     private func playUserClip(_ clip: UserAudioClip) {
         do {
-            stopCurrentPlaybackIfNeeded()
             let url = try AudioClipStore.fileURL(for: clip.storedFileName)
             player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
             player?.prepareToPlay()
             player?.play()
+
+            if player?.isPlaying != true {
+                finishCurrentQueueItem()
+            }
         } catch {
             playDefaultBeep()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.finishCurrentQueueItem()
+            }
         }
     }
 
     func playAudioFileFromDocuments(storedFileName: String) {
+        enqueue(.documentClip(storedFileName))
+    }
+
+    private func playDocumentClip(storedFileName: String) {
         do {
-            stopCurrentPlaybackIfNeeded()
             let url = try AudioClipStore.fileURL(for: storedFileName)
             player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
             player?.prepareToPlay()
             player?.play()
+
+            if player?.isPlaying != true {
+                finishCurrentQueueItem()
+            }
         } catch {
             playDefaultBeep()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.finishCurrentQueueItem()
+            }
         }
     }
 
@@ -138,5 +164,64 @@ final class AudioManager: ObservableObject {
 
     private func playDefaultBeep() {
         AudioServicesPlaySystemSound(1104)
+    }
+
+    // =====================================================
+    // MARK: - Queue
+    // =====================================================
+
+    private func enqueue(_ item: QueueItem) {
+        DispatchQueue.main.async {
+            self.queue.append(item)
+            self.playNextIfNeeded()
+        }
+    }
+
+    private func playNextIfNeeded() {
+        guard !isPlayingQueueItem else { return }
+        guard !queue.isEmpty else { return }
+
+        isPlayingQueueItem = true
+        let next = queue.removeFirst()
+
+        switch next {
+        case .speech(let text):
+            stopCurrentPlaybackIfNeeded()
+            speaker.say(text) { [weak self] in
+                self?.finishCurrentQueueItem()
+            }
+
+        case .clip(let clip):
+            stopCurrentPlaybackIfNeeded()
+            playUserClip(clip)
+
+        case .documentClip(let storedFileName):
+            stopCurrentPlaybackIfNeeded()
+            playDocumentClip(storedFileName: storedFileName)
+
+        case .beep:
+            stopCurrentPlaybackIfNeeded()
+            playDefaultBeep()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.finishCurrentQueueItem()
+            }
+        }
+    }
+
+    private func finishCurrentQueueItem() {
+        DispatchQueue.main.async {
+            self.isPlayingQueueItem = false
+            self.playNextIfNeeded()
+        }
+    }
+}
+
+extension AudioManager: AVAudioPlayerDelegate {
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finishCurrentQueueItem()
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        finishCurrentQueueItem()
     }
 }

@@ -480,7 +480,7 @@ struct SessionLayoutLambMarkingTreatTraitView: View {
                     Button {
                         onOpenTreatments()
                     } label: {
-                        Text("Open Treatments")
+                        Text("+Add Treatments")
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)

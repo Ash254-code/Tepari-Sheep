@@ -218,6 +218,9 @@ final class LocalDataStore: ObservableObject {
         var programmedTags: [UUID: [String: ProgrammedTagAssignment]]
         var soldArchive: [SoldAnimal]
 
+        // Per-session draft setup
+        var sessionDraftSetup: [UUID: SessionDraftSetup]?
+
         init(
             schemaVersion: Int = 1,
             sessions: [Session] = [],
@@ -244,7 +247,8 @@ final class LocalDataStore: ObservableObject {
             animals: [AnimalProfile] = [],
             animalEvents: [AnimalEvent]? = nil,
             programmedTags: [UUID: [String: ProgrammedTagAssignment]] = [:],
-            soldArchive: [SoldAnimal] = []
+            soldArchive: [SoldAnimal] = [],
+            sessionDraftSetup: [UUID: SessionDraftSetup]? = nil
         ) {
             self.schemaVersion = schemaVersion
             self.sessions = sessions
@@ -278,6 +282,7 @@ final class LocalDataStore: ObservableObject {
 
             self.programmedTags = programmedTags
             self.soldArchive = soldArchive
+            self.sessionDraftSetup = sessionDraftSetup
         }
     }
 
@@ -290,7 +295,7 @@ final class LocalDataStore: ObservableObject {
     private var saveSuspensionDepth: Int = 0
     private var saveNeededWhileSuspended: Bool = false
 
-    private func scheduleSave() {
+    func scheduleSave() {
         guard !isLoadingSnapshot else { return }
 
         guard saveSuspensionDepth == 0 else {
@@ -390,10 +395,10 @@ final class LocalDataStore: ObservableObject {
             animals: animals,
             animalEvents: nil,
             programmedTags: programmedTags,
-            soldArchive: soldArchive
+            soldArchive: soldArchive,
+            sessionDraftSetup: sessionDraftSetup
         )
     }
-
     private func applySnapshot(_ snap: Snapshot) {
         guard snap.schemaVersion == snapshotSchemaVersion else { return }
 
@@ -426,6 +431,7 @@ final class LocalDataStore: ObservableObject {
 
         programmedTags = snap.programmedTags
         soldArchive = snap.soldArchive
+        sessionDraftSetup = snap.sessionDraftSetup ?? [:]
 
         rebuildIndexes()
     }
@@ -1517,6 +1523,7 @@ final class LocalDataStore: ObservableObject {
     // =========================================================
 
     @Published private(set) var sessionTreatments: [UUID: [SessionTreatment]] = [:]
+    @Published var sessionDraftSetup: [UUID: SessionDraftSetup] = [:]
 
     func treatments(for sessionID: UUID) -> [SessionTreatment] {
         sessionTreatments[sessionID] ?? []
@@ -2354,6 +2361,7 @@ final class LocalDataStore: ObservableObject {
 
             sessionConfigs.removeAll()
             sessionTreatments.removeAll()
+            sessionDraftSetup.removeAll()
 
             sessionFarmID.removeAll()
             sessionMobID.removeAll()
@@ -2671,6 +2679,7 @@ final class LocalDataStore: ObservableObject {
         records.removeAll { $0.sessionID == session.id }
 
         sessionConfigs.removeValue(forKey: session.id)
+        sessionDraftSetup.removeValue(forKey: session.id)
 
         sessionFarmID.removeValue(forKey: session.id)
         sessionMobID.removeValue(forKey: session.id)

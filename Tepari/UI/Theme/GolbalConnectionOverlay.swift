@@ -34,7 +34,11 @@ func connectionPillUsage(for activeTypes: Set<SetupSessionType>) -> (h: Bool, d:
     let h = activeTypes.contains(.weigh) || activeTypes.contains(.fleeceWeigh)
 
     // Drafter
-    let d = activeTypes.contains(.draft) || activeTypes.contains(.pregTesting)
+    let d = true
+        activeTypes.contains(.draft) ||
+        activeTypes.contains(.pregTesting) ||
+        activeTypes.contains(.sale) ||
+        activeTypes.contains(.transfer)
 
     // Dosing gun
     let g = activeTypes.contains(.treatment) || activeTypes.contains(.lambMarking)

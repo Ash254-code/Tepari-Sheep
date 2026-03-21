@@ -40,17 +40,38 @@ final class DrafterController: ObservableObject {
 
     // =========================================================
     // MARK: - Public API (PHYSICAL)
-// =========================================================
+    // =========================================================
 
     func draftAnimal(to position: DraftPosition) {
-        executeMovement(to: position)
+        executeMovement(to: position, isManualTest: false)
     }
 
     func manualTest(position: DraftPosition) {
-        executeMovement(to: position)
+        executeMovement(to: position, isManualTest: true)
+    }
+
+    /// Call this when all required jobs for the current animal are complete.
+    /// Only releases automatically when auto release mode is job-based.
+    func releaseIfJobsComplete() {
+        guard settings.autoReleaseMode == .whenJobsComplete else { return }
+
+        movementTask?.cancel()
+        movementTask = Task { [weak self] in
+            await self?.runReleaseSequence()
+        }
+    }
+
+    /// Force release regardless of release mode.
+    func releaseNow() {
+        movementTask?.cancel()
+        movementTask = Task { [weak self] in
+            await self?.runReleaseSequence()
+        }
     }
 
     func sessionEnded() {
+        cancelMovement()
+
         if settings.returnHomeOnSessionEnd {
             moveToHome()
         }
@@ -63,7 +84,10 @@ final class DrafterController: ObservableObject {
     }
 
     func moveToHome() {
-        executeMovement(to: .straight)
+        movementTask?.cancel()
+        movementTask = Task { [weak self] in
+            await self?.runMoveToHomeSequence()
+        }
     }
 
     // =========================================================
@@ -76,15 +100,14 @@ final class DrafterController: ObservableObject {
         using map: DraftGateMap
     ) {
         let physical = map.physical(for: target)
-        executeMovement(to: physical)
+        executeMovement(to: physical, isManualTest: false)
     }
 
     // =========================================================
     // MARK: - Movement engine
     // =========================================================
 
-    private func executeMovement(to target: DraftPosition) {
-
+    private func executeMovement(to target: DraftPosition, isManualTest: Bool) {
         if settings.blockWhileMoving && isMoving {
             return
         }
@@ -92,12 +115,11 @@ final class DrafterController: ObservableObject {
         movementTask?.cancel()
 
         movementTask = Task { [weak self] in
-            await self?.runMovementSequence(target: target)
+            await self?.runMovementSequence(target: target, isManualTest: isManualTest)
         }
     }
 
-    private func runMovementSequence(target: DraftPosition) async {
-
+    private func runMovementSequence(target: DraftPosition, isManualTest: Bool) async {
         isMoving = true
 
         do {
@@ -106,11 +128,22 @@ final class DrafterController: ObservableObject {
             try await performGateMove(to: target)
             currentPosition = target
 
-            try await sleep(settings.gateHoldSeconds)
+            let holdSeconds = isManualTest
+                ? settings.manualTestHoldSeconds
+                : settings.gateHoldSeconds
 
-            if settings.autoReleaseEnabled {
-                try await performGateMove(to: .straight)
-                currentPosition = .straight
+            switch settings.autoReleaseMode {
+            case .off:
+                break
+
+            case .timed:
+                try await sleep(holdSeconds)
+                try await runReleaseSequenceInline()
+
+            case .whenJobsComplete:
+                // Hold current position until session workflow says release.
+                // No timed release here.
+                break
             }
 
         } catch {
@@ -120,12 +153,53 @@ final class DrafterController: ObservableObject {
         isMoving = false
     }
 
+    private func runReleaseSequence() async {
+        if settings.blockWhileMoving && isMoving {
+            return
+        }
+
+        isMoving = true
+
+        do {
+            try await runReleaseSequenceInline()
+        } catch {
+            // cancelled / timeout
+        }
+
+        isMoving = false
+    }
+
+    private func runReleaseSequenceInline() async throws {
+        if settings.releaseDelaySeconds > 0 {
+            try await sleep(settings.releaseDelaySeconds)
+        }
+
+        if settings.releaseToHomePosition {
+            try await performGateMove(to: .straight)
+            currentPosition = .straight
+        } else {
+            releaseAllDraftRelays()
+        }
+    }
+
+    private func runMoveToHomeSequence() async {
+        isMoving = true
+
+        do {
+            try await performGateMove(to: .straight)
+            currentPosition = .straight
+        } catch {
+            // cancelled / timeout
+        }
+
+        isMoving = false
+    }
+
     // =========================================================
-    // MARK: - Hardware simulation
+    // MARK: - Hardware control
     // =========================================================
 
     private func performGateMove(to position: DraftPosition) async throws {
-
         sendGateCommand(position)
 
         try await withTimeout(
@@ -138,6 +212,33 @@ final class DrafterController: ObservableObject {
     private func sendGateCommand(_ position: DraftPosition) {
         lastCommandSent = position
         print("DRAFT MOVE → \(position.label) (\(position.rawValue))")
+
+        switch position {
+        case .left:
+            // Left = relay 1 on, relay 2 off
+            DraftWifiController.releaseGate(2)
+            DraftWifiController.holdGate(1)
+
+        case .straight:
+            // Centre/home = both off
+            DraftWifiController.releaseGate(1)
+            DraftWifiController.releaseGate(2)
+
+        case .right:
+            // Right = relay 2 on, relay 1 off
+            DraftWifiController.releaseGate(1)
+            DraftWifiController.holdGate(2)
+
+        case .farRight:
+            // Far right not wired yet - park in centre/home
+            DraftWifiController.releaseGate(1)
+            DraftWifiController.releaseGate(2)
+        }
+    }
+
+    private func releaseAllDraftRelays() {
+        DraftWifiController.releaseGate(1)
+        DraftWifiController.releaseGate(2)
     }
 
     // =========================================================
@@ -152,9 +253,7 @@ final class DrafterController: ObservableObject {
         seconds: Double,
         operation: @escaping () async throws -> Void
     ) async throws {
-
         try await withThrowingTaskGroup(of: Void.self) { group in
-
             group.addTask { try await operation() }
 
             group.addTask {

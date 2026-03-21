@@ -55,9 +55,13 @@ struct GateTimingCalibrationView: View {
 
                 Toggle(
                     "Auto return after animal",
-                    isOn: $draftSettings.autoReleaseEnabled
+                    isOn: Binding(
+                        get: { draftSettings.autoReleaseMode != .off },
+                        set: { newValue in
+                            draftSettings.autoReleaseMode = newValue ? .timed : .off
+                        }
+                    )
                 )
-
                 Toggle(
                     "Return home when session ends",
                     isOn: $draftSettings.returnHomeOnSessionEnd

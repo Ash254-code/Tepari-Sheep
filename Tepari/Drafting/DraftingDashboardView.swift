@@ -11,7 +11,25 @@ struct DraftDashboardView: View {
     @Environment(\.horizontalSizeClass) private var hSize
     private var isPhoneCompact: Bool { hSize == .compact }
 
-    @AppStorage("draft.autoReleaseEnabled") private var autoReleaseEnabled: Bool = true
+    private var autoReleaseEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { draftSettings.autoReleaseMode != .off },
+            set: { newValue in
+                draftSettings.autoReleaseMode = newValue ? .whenJobsComplete : .off
+            }
+        )
+    }
+
+    private var autoReleaseStatusText: String {
+        switch draftSettings.autoReleaseMode {
+        case .off:
+            return "Gate stays in position until other control logic takes over."
+        case .timed:
+            return "Gate releases automatically after the timed hold."
+        case .whenJobsComplete:
+            return "Gate releases automatically once all required session jobs are complete."
+        }
+    }
 
     @AppStorage("draft.audio.left") private var leftGateAudioID: String = ""
     @AppStorage("draft.audio.straight") private var straightGateAudioID: String = ""
@@ -113,12 +131,7 @@ struct DraftDashboardView: View {
         let title: String
     }
 
-    @State private var weightRules: [WeightDraftRuleRow] = [
-        .init(label: "Light", minKg: "", maxKg: "45", bucket: .left),
-        .init(label: "Medium", minKg: "45", maxKg: "60", bucket: .straight),
-        .init(label: "Heavy", minKg: "60", maxKg: "", bucket: .right)
-    ]
-
+    @State private var weightRules: [WeightDraftRuleRow] = []
     @State private var mobRules: [MobDraftRuleRow] = []
     @State private var classRules: [ClassDraftRuleRow] = []
 
@@ -127,6 +140,7 @@ struct DraftDashboardView: View {
 
     @State private var didSeedMobRules = false
     @State private var didSeedClassRules = false
+    @State private var isRestoringDraftSetup = false
 
     // =====================================================
     // MARK: - Session + derived data
@@ -197,39 +211,54 @@ struct DraftDashboardView: View {
             }
         }
         .onAppear {
-            seedMobRulesIfNeeded()
-            seedClassRulesIfNeeded()
+            restoreDraftSetupFromStore()
+            applyDraftRulesToEngine()
+        }
+        .onChange(of: activeSessionID) { _, _ in
+            restoreDraftSetupFromStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: currentFarmID) { _, _ in
             seedMobRulesIfNeeded(force: true)
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: draftState.setup.selectedMode) { _, newMode in
-            guard let newMode else { return }
+            guard let newMode else {
+                saveDraftSetupToStore()
+                applyDraftRulesToEngine()
+                return
+            }
+
             seedRulesForModeIfNeeded(newMode)
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: weightRules) { _, _ in
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: mobRules) { _, _ in
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: classRules) { _, _ in
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: mobFallback) { _, _ in
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: classFallback) { _, _ in
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
         .onChange(of: draftSettings.gateMap) { _, newMap in
             vm.draftEngine?.gateMap = newMap
             applyDraftRulesToEngine()
         }
-        .onChange(of: autoReleaseEnabled) { _, _ in
+        .onChange(of: draftSettings.autoReleaseMode) { _, _ in
             applyDraftRulesToEngine()
         }
     }
@@ -381,9 +410,7 @@ struct DraftDashboardView: View {
                         Text("Auto Release")
                             .font(.subheadline.weight(.semibold))
 
-                        Text(autoReleaseEnabled
-                             ? "Gate releases automatically after drafting."
-                             : "Gate stays in position until other control logic takes over.")
+                        Text(autoReleaseStatusText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -391,10 +418,19 @@ struct DraftDashboardView: View {
 
                     Spacer()
 
-                    Toggle("", isOn: $autoReleaseEnabled)
+                    Toggle("", isOn: autoReleaseEnabledBinding)
                         .labelsHidden()
                 }
-
+                
+                if draftSettings.autoReleaseMode != .off {
+                    Picker("Release Mode", selection: $draftSettings.autoReleaseMode) {
+                        ForEach(DraftSettings.AutoReleaseMode.allCases.filter { $0 != .off }) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
                 if let selectedMode = draftState.setup.selectedMode {
                     Divider().opacity(0.22)
                     modeSetupCard(selectedMode)
@@ -568,6 +604,7 @@ struct DraftDashboardView: View {
         return Button {
             vm.selectDraftMode(mode)
             seedRulesForModeIfNeeded(mode)
+            saveDraftSetupToStore()
             applyDraftRulesToEngine()
         } label: {
             HStack(spacing: 8) {
@@ -658,7 +695,6 @@ struct DraftDashboardView: View {
     private func manualDraftButton(title: String, position: DraftPosition, color: Color) -> some View {
         Button {
             drafter.manualTest(position: position)
-            DraftWifiController.fireGate(wifiGate(for: position))
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -1278,7 +1314,6 @@ struct DraftDashboardView: View {
 
             Button {
                 drafter.draftAnimal(logical: logical, using: draftSettings.gateMap)
-                DraftWifiController.fireGate(wifiGate(for: physical))
             } label: {
                 Label("Test", systemImage: "bolt.fill")
             }
@@ -1420,6 +1455,183 @@ struct DraftDashboardView: View {
     }
 
     // =====================================================
+    // MARK: - Persistence helpers
+    // =====================================================
+
+    private func restoreDraftSetupFromStore() {
+        guard let sessionID = activeSessionID else {
+            isRestoringDraftSetup = true
+            weightRules = []
+            mobRules = []
+            classRules = []
+            mobFallback = .noDraft
+            classFallback = .noDraft
+            didSeedMobRules = false
+            didSeedClassRules = false
+            isRestoringDraftSetup = false
+            return
+        }
+
+        isRestoringDraftSetup = true
+        defer { isRestoringDraftSetup = false }
+
+        let setup = store.draftSetup(for: sessionID)
+
+        weightRules = setup.weightRules.map {
+            WeightDraftRuleRow(
+                label: $0.name,
+                minKg: $0.minWeight.map { trimNumber($0) } ?? "",
+                maxKg: $0.maxWeight.map { trimNumber($0) } ?? "",
+                bucket: gateBucket(from: $0.draftPositionRaw) ?? .straight
+            )
+        }
+
+        mobRules = setup.mobRules.map {
+            MobDraftRuleRow(
+                mobName: $0.mobName,
+                bucket: gateBucket(from: $0.draftPositionRaw) ?? .straight
+            )
+        }
+
+        classRules = setup.classRules.compactMap {
+            guard let animalClass = LocalDataStore.AnimalClass(rawValue: $0.animalClassRaw) else {
+                return nil
+            }
+
+            return ClassDraftRuleRow(
+                animalClass: animalClass,
+                bucket: gateBucket(from: $0.draftPositionRaw) ?? .straight
+            )
+        }
+
+        mobFallback = fallbackOption(from: setup.fallback)
+        classFallback = fallbackOption(from: setup.fallback)
+
+        didSeedMobRules = !mobRules.isEmpty
+        didSeedClassRules = !classRules.isEmpty
+
+        if let mode = draftModeType(from: setup.mode) {
+            vm.selectDraftMode(mode)
+            seedRulesForModeIfNeeded(mode)
+        } else if weightRules.isEmpty {
+            weightRules = defaultWeightRules
+        }
+    }
+
+    private func saveDraftSetupToStore() {
+        guard !isRestoringDraftSetup else { return }
+        guard let sessionID = activeSessionID else { return }
+
+        let setup = SessionDraftSetup(
+            mode: sessionDraftSetupMode(from: draftState.setup.selectedMode),
+            weightRules: weightRules.map {
+                SessionWeightDraftRule(
+                    id: $0.id,
+                    name: $0.label.trimmingCharacters(in: .whitespacesAndNewlines),
+                    minWeight: Double($0.minKg.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    maxWeight: Double($0.maxKg.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    draftPositionRaw: $0.bucket.rawValue
+                )
+            },
+            mobRules: mobRules.map { row in
+                let matchedMob = availableMobs.first {
+                    $0.name.localizedCaseInsensitiveCompare(row.mobName) == .orderedSame
+                }
+
+                return SessionMobDraftRule(
+                    id: row.id,
+                    mobID: matchedMob?.id ?? UUID(),
+                    mobName: row.mobName,
+                    draftPositionRaw: row.bucket.rawValue
+                )
+            },
+            classRules: classRules.map {
+                SessionClassDraftRule(
+                    id: $0.id,
+                    animalClassRaw: $0.animalClass.rawValue,
+                    draftPositionRaw: $0.bucket.rawValue
+                )
+            },
+            fallback: draftFallbackChoiceForCurrentMode(),
+            isEnabled: draftState.setup.selectedMode != nil
+        )
+
+        store.setDraftSetup(setup, for: sessionID)
+    }
+
+    private func sessionDraftSetupMode(from mode: DraftModeType?) -> DraftSetupMode {
+        switch mode {
+        case .weight:
+            return .byWeight
+        case .mob:
+            return .byMob
+        case .animalClass:
+            return .byClass
+        case .pregHistory, .file, nil:
+            return .off
+        }
+    }
+
+    private func draftModeType(from mode: DraftSetupMode) -> DraftModeType? {
+        switch mode {
+        case .off:
+            return nil
+        case .byWeight:
+            return .weight
+        case .byMob:
+            return .mob
+        case .byClass:
+            return .animalClass
+        }
+    }
+
+    private func draftFallbackChoiceForCurrentMode() -> DraftFallbackChoice {
+        switch draftState.setup.selectedMode {
+        case .mob:
+            return draftFallbackChoice(from: mobFallback)
+        case .animalClass:
+            return draftFallbackChoice(from: classFallback)
+        default:
+            return .keepCurrent
+        }
+    }
+
+    private func draftFallbackChoice(from option: DraftFallbackOption) -> DraftFallbackChoice {
+        switch option {
+        case .noDraft:
+            return .keepCurrent
+        case .left:
+            return .left
+        case .straight, .right, .hold:
+            return .right
+        }
+    }
+
+    private func fallbackOption(from choice: DraftFallbackChoice) -> DraftFallbackOption {
+        switch choice {
+        case .keepCurrent:
+            return .noDraft
+        case .left:
+            return .left
+        case .right:
+            return .right
+        }
+    }
+
+    private func gateBucket(from rawValue: String) -> DraftGateBucket? {
+        DraftGateBucket(rawValue: rawValue)
+    }
+
+    private func trimNumber(_ value: Double) -> String {
+        let s = String(format: "%.3f", value)
+        var out = s
+        while out.contains(".") && (out.hasSuffix("0") || out.hasSuffix(".")) {
+            out.removeLast()
+        }
+        return out
+    }
+
+    // =====================================================
     // MARK: - Helpers
     // =====================================================
 
@@ -1450,23 +1662,28 @@ struct DraftDashboardView: View {
             if mobRules.isEmpty {
                 seedMobRulesIfNeeded(force: true)
             }
+
         case .animalClass:
             if classRules.isEmpty {
                 seedClassRulesIfNeeded(force: true)
             }
+
         case .weight:
             if weightRules.isEmpty {
-                weightRules = [
-                    .init(label: "Light", minKg: "", maxKg: "45", bucket: .left),
-                    .init(label: "Medium", minKg: "45", maxKg: "60", bucket: .straight),
-                    .init(label: "Heavy", minKg: "60", maxKg: "", bucket: .right)
-                ]
+                weightRules = defaultWeightRules
             }
+
         case .pregHistory, .file:
             break
         }
     }
-
+    private var defaultWeightRules: [WeightDraftRuleRow] {
+        [
+            .init(label: "Light", minKg: "", maxKg: "45", bucket: .left),
+            .init(label: "Medium", minKg: "45", maxKg: "60", bucket: .straight),
+            .init(label: "Heavy", minKg: "60", maxKg: "", bucket: .right)
+        ]
+    }
     private func bindingForWeightRule(_ id: UUID) -> (
         label: Binding<String>,
         minKg: Binding<String>,
@@ -1654,15 +1871,6 @@ struct DraftDashboardView: View {
 
     private func fmt1(_ v: Double) -> String {
         String(format: "%.1f", v)
-    }
-
-    private func wifiGate(for pos: DraftPosition) -> Int {
-        switch pos {
-        case .left: return 1
-        case .straight: return 2
-        case .right: return 3
-        case .farRight: return 4
-        }
     }
 
     private func statePill(text: String, color: Color) -> some View {

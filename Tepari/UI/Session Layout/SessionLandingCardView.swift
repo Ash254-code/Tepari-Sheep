@@ -13,7 +13,7 @@ struct SessionLandingCardView: View {
             let isLandscape = geo.size.width > geo.size.height
             let cardPadding: CGFloat = isLandscape ? 14 : 18
             let topPadding: CGFloat = isLandscape ? 14 : 18
-            let heroSize: CGFloat = isLandscape ? 154 : 175
+            let heroSize: CGFloat = isLandscape ? 164 : 188
             let buttonVerticalPadding: CGFloat = isLandscape ? 14 : 16
             let interBlockGap: CGFloat = isLandscape ? 18 : 26
             let effectiveMinHeight = max(minCardHeight, isLandscape ? 380 : minCardHeight)
@@ -98,18 +98,22 @@ struct SessionLandingCardView: View {
     private func heroMark(size: CGFloat) -> some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let pulse = (sin(t * 1.1) + 1.0) * 0.5
+            let pulse = (sin(t * 1.15) + 1.0) * 0.5
 
-            let ringScale = 1.00 + (0.06 * pulse)
-            let ringOpacity = 0.30 + (0.35 * pulse)
+            let outerRingScale = 1.00 + (0.045 * pulse)
+            let outerRingOpacity = 0.58 + (0.22 * pulse)
+
+            let scanArcScale = 0.98 + (0.05 * pulse)
+            let scanArcOpacity = 0.40 + (0.35 * pulse)
 
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.blue.opacity(0.35),
-                                Color.blue.opacity(0.08)
+                                Color.white.opacity(0.22),
+                                Color.blue.opacity(0.30),
+                                Color.blue.opacity(0.12)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -117,26 +121,91 @@ struct SessionLandingCardView: View {
                     )
 
                 Circle()
-                    .stroke(Color.blue.opacity(0.75), lineWidth: 10)
-                    .scaleEffect(ringScale)
-                    .opacity(ringOpacity)
-
-                VStack(spacing: 6) {
-                    Image("sheep")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(.white)
-                        .frame(
-                            width: size * 0.69,
-                            height: size * 0.69
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(0.30),
+                                Color.clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 8,
+                            endRadius: size * 0.65
                         )
+                    )
 
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.system(size: size * 0.103, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.95))
+                Circle()
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.75),
+                                Color.blue.opacity(0.95)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 12
+                    )
+                    .scaleEffect(outerRingScale)
+                    .opacity(outerRingOpacity)
+                    .shadow(color: Color.blue.opacity(0.22), radius: 10, x: 0, y: 0)
+
+                Group {
+                    Circle()
+                        .trim(from: 0.16, to: 0.34)
+                        .stroke(
+                            Color.white.opacity(scanArcOpacity),
+                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round)
+                        )
+                        .frame(width: size * 0.78, height: size * 0.78)
+
+                    Circle()
+                        .trim(from: 0.16, to: 0.34)
+                        .stroke(
+                            Color.blue.opacity(scanArcOpacity * 0.95),
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                        )
+                        .frame(width: size * 0.92, height: size * 0.92)
                 }
-                .offset(y: size * 0.034)
+                .scaleEffect(scanArcScale)
+                .rotationEffect(.degrees(6))
+
+                Group {
+                    Circle()
+                        .trim(from: 0.66, to: 0.84)
+                        .stroke(
+                            Color.white.opacity(scanArcOpacity),
+                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round)
+                        )
+                        .frame(width: size * 0.78, height: size * 0.78)
+
+                    Circle()
+                        .trim(from: 0.66, to: 0.84)
+                        .stroke(
+                            Color.blue.opacity(scanArcOpacity * 0.95),
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                        )
+                        .frame(width: size * 0.92, height: size * 0.92)
+                }
+                .scaleEffect(scanArcScale)
+                .rotationEffect(.degrees(-6))
+
+                Image("sheep")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
+                    .frame(
+                        width: size * 0.82,
+                        height: size * 0.82
+                    )
+                    .offset(y: size * 0.03)
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: size * 0.07, height: size * 0.07)
+                    .offset(x: size * 0.26, y: -size * 0.10)
+                    .shadow(color: Color.white.opacity(0.55), radius: 8)
             }
             .frame(width: size, height: size, alignment: .center)
             .compositingGroup()

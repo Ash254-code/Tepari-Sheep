@@ -5,6 +5,29 @@ import Combine
 final class DraftSettings: ObservableObject {
 
     // =====================================================
+    // MARK: - Release mode
+    // =====================================================
+
+    enum AutoReleaseMode: String, Codable, CaseIterable, Identifiable {
+        case off
+        case timed
+        case whenJobsComplete
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .off:
+                return "Off"
+            case .timed:
+                return "Timed"
+            case .whenJobsComplete:
+                return "When Jobs Complete"
+            }
+        }
+    }
+
+    // =====================================================
     // MARK: - Gate behaviour
     // =====================================================
 
@@ -18,7 +41,8 @@ final class DraftSettings: ObservableObject {
         didSet { gateMoveDurationSeconds = clamp(gateMoveDurationSeconds, 0.1, 5.0) }
     }
 
-    /// How long gate stays open before returning (only if autoRelease enabled).
+    /// Used ONLY when autoReleaseMode == .timed
+    /// How long gate stays open before returning.
     @Published var gateHoldSeconds: Double = 1.5 {
         didSet { gateHoldSeconds = clamp(gateHoldSeconds, 0.1, 10.0) }
     }
@@ -32,9 +56,24 @@ final class DraftSettings: ObservableObject {
     // MARK: - Release behaviour
     // =====================================================
 
-    /// If TRUE → gate returns after animal passes.
-    /// If FALSE → gate stays where it is until next draft command.
-    @Published var autoReleaseEnabled: Bool = false
+    /// Master control for release behaviour.
+    /// - off: animal stays held until another command or manual release
+    /// - timed: gate returns automatically after `gateHoldSeconds`
+    /// - whenJobsComplete: release only after required session jobs are done
+    @Published var autoReleaseMode: AutoReleaseMode = .off
+
+    /// Backward-compatibility helper for older code paths.
+    var autoReleaseEnabled: Bool {
+        autoReleaseMode != .off
+    }
+
+    /// When releasing, return to home/centre position.
+    @Published var releaseToHomePosition: Bool = true
+
+    /// Optional delay before release happens after jobs complete.
+    @Published var releaseDelaySeconds: Double = 0.0 {
+        didSet { releaseDelaySeconds = clamp(releaseDelaySeconds, 0.0, 5.0) }
+    }
 
     /// When session stops, always return to centre/home.
     @Published var returnHomeOnSessionEnd: Bool = true

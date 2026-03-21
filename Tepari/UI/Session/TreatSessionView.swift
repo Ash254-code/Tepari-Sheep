@@ -4,6 +4,7 @@ struct TreatSessionView: View {
 
     @EnvironmentObject private var store: LocalDataStore
     @EnvironmentObject private var coordinator: ActiveSessionCoordinator
+    @EnvironmentObject private var vm: SessionViewModel
     @Environment(\.dismiss) private var dismiss
 
     // =========================================================
@@ -118,15 +119,17 @@ struct TreatSessionView: View {
                             isEditMode.toggle()
                         }
                     } label: {
-                        Label(isEditMode ? "Done" : "Edit",
-                              systemImage: isEditMode ? "checkmark.circle.fill" : "pencil")
-                            .font(.headline.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(
-                                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
+                        Label(
+                            isEditMode ? "Done" : "Edit",
+                            systemImage: isEditMode ? "checkmark.circle.fill" : "pencil"
+                        )
+                        .font(.headline.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(
+                            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -398,6 +401,9 @@ struct TreatSessionView: View {
             store.addTreatment(sessionID: sid, product: p, dosage: d, withholding: w)
         }
 
+        vm.reloadSessionTreatments()
+        vm.markTreatmentCompleted()
+
         dismissSheet()
         resetForm()
     }
@@ -417,4 +423,3 @@ struct TreatSessionView: View {
         return "\(d) • \(w)"
     }
 }
-

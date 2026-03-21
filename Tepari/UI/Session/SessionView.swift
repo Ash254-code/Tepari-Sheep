@@ -153,10 +153,10 @@ struct SessionView: View {
         let cfg = store.config(for: vm.activeSession.id)
 
         let anyTraitFieldsEnabled =
-            (cfg?.recordMicron ?? false) ||
-            (cfg?.recordStapleLength ?? false) ||
-            (cfg?.recordCustom1 ?? false) ||
-            (cfg?.recordCustom2 ?? false)
+        (cfg?.recordMicron ?? false) ||
+        (cfg?.recordStapleLength ?? false) ||
+        (cfg?.recordCustom1 ?? false) ||
+        (cfg?.recordCustom2 ?? false)
 
         vm.setTraitsEnabled(
             activeTypes.contains(.traitInput) || anyTraitFieldsEnabled
@@ -547,7 +547,11 @@ struct SessionView: View {
                 updateTraitsEnabledState()
                 updateDockState()
             }
-            .onChange(of: sessionCoordinator.activeSessionID) { _, newID in
+            .onChange(of: sessionCoordinator.activeSessionID) { oldID, newID in
+                if oldID != nil && newID == nil {
+                    endDraftHardwareState()
+                }
+
                 updateTraitsEnabledState()
                 updateDockState()
 
@@ -706,6 +710,16 @@ struct SessionView: View {
 
         isDraftPaused.toggle()
         DraftWifiController.setPauseRelay(paused: isDraftPaused)
+        updateDockState()
+    }
+
+    private func endDraftHardwareState() {
+        if isDraftPaused {
+            isDraftPaused = false
+            DraftWifiController.setPauseRelay(paused: false)
+        }
+
+        drafter.sessionEnded()
         updateDockState()
     }
 
@@ -987,14 +1001,17 @@ struct SessionView: View {
             let ov = editorDoseOverrides[t.id]
 
             let value = (ov?.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                ? ov?.value.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                : t.doseValue
+            ? ov?.value.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            : t.doseValue
 
             let unit = ov?.unit ?? t.doseUnit
             let basis = ov?.basis ?? t.doseBasis
             let perKg = (ov?.perKg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                ? ov?.perKg?.trimmingCharacters(in: .whitespacesAndNewlines)
-                : t.dosePerKg?.trimmedOrNil
+            ? ov?.perKg?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : {
+                let trimmed = t.dosePerKg?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (trimmed?.isEmpty == true) ? nil : trimmed
+            }()
 
             let doseString: String = {
                 let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1014,7 +1031,10 @@ struct SessionView: View {
                 product: t.product,
                 dosage: doseString,
                 withholding: t.withholding,
-                doseValue: value.trimmedOrNil,
+                doseValue: {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : trimmed
+                }(),
                 doseUnit: unit,
                 doseBasis: basis,
                 dosePerKg: basis == .perBodyWeight ? perKg : nil,
@@ -1034,11 +1054,14 @@ struct SessionView: View {
         _ treatment: SessionTreatment,
         fallbackUnit: DoseUnit
     ) -> DoseValue? {
-        if let value = treatment.doseValue?.trimmedOrNil {
-            let unit = treatment.doseUnit ?? fallbackUnit
-            let basis = treatment.doseBasis ?? .perAnimal
-            let perKg = basis == .perBodyWeight ? treatment.dosePerKg : nil
-            return DoseValue(value: value, unit: unit, basis: basis, perKg: perKg)
+        if let rawValue = treatment.doseValue {
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                let unit = treatment.doseUnit ?? fallbackUnit
+                let basis = treatment.doseBasis ?? .perAnimal
+                let perKg = basis == .perBodyWeight ? treatment.dosePerKg : nil
+                return DoseValue(value: value, unit: unit, basis: basis, perKg: perKg)
+            }
         }
 
         let legacy = treatment.dosage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1111,20 +1134,20 @@ struct SessionView: View {
         var types: Set<SetupSessionType> = []
 
         let weighingEnabled =
-            reflectedBool(cfg, keys: [
-                "weighingEnabled", "recordWeight", "weighEnabled", "enableWeigh", "isWeighingEnabled"
-            ]) ?? false
+        reflectedBool(cfg, keys: [
+            "weighingEnabled", "recordWeight", "weighEnabled", "enableWeigh", "isWeighingEnabled"
+        ]) ?? false
 
         let draftingEnabled =
-            reflectedBool(cfg, keys: [
-                "draftingEnabled", "draftEnabled", "recordDraft", "enableDraft", "isDraftingEnabled"
-            ]) ?? false
+        reflectedBool(cfg, keys: [
+            "draftingEnabled", "draftEnabled", "recordDraft", "enableDraft", "isDraftingEnabled"
+        ]) ?? false
 
         let traitEnabled =
-            (reflectedBool(cfg, keys: ["recordMicron"]) ?? false) ||
-            (reflectedBool(cfg, keys: ["recordStapleLength"]) ?? false) ||
-            (reflectedBool(cfg, keys: ["recordCustom1"]) ?? false) ||
-            (reflectedBool(cfg, keys: ["recordCustom2"]) ?? false)
+        (reflectedBool(cfg, keys: ["recordMicron"]) ?? false) ||
+        (reflectedBool(cfg, keys: ["recordStapleLength"]) ?? false) ||
+        (reflectedBool(cfg, keys: ["recordCustom1"]) ?? false) ||
+        (reflectedBool(cfg, keys: ["recordCustom2"]) ?? false)
 
         if weighingEnabled {
             types.insert(.weigh)
@@ -1216,6 +1239,7 @@ struct SessionView: View {
     }
 
     private func performRestart(_ session: Session) {
+        endDraftHardwareState()
         resetForRestartedSession()
         sessionCoordinator.restartSessionFromHistory(session.id)
         vm.setSession(session)
@@ -1237,9 +1261,7 @@ struct SessionView: View {
     private var noActiveSessionCard: some View {
         GeometryReader { proxy in
             let isPadLandscape = !Device.isPhone && proxy.size.width > proxy.size.height
-            let heroCircleSize: CGFloat = Device.isPhone ? (isPadLandscape ? 210 : 250) : (isPadLandscape ? 280 : 340)
-            let sheepSize: CGFloat = heroCircleSize * 0.60
-            let antennaSize: CGFloat = heroCircleSize * 0.09
+            let heroCircleSize: CGFloat = Device.isPhone ? (isPadLandscape ? 220 : 270) : (isPadLandscape ? 300 : 360)
             let verticalSpacing: CGFloat = Device.isPhone ? (isPadLandscape ? 22 : 30) : (isPadLandscape ? 28 : 36)
             let buttonSpacing: CGFloat = isPadLandscape ? 14 : 16
             let buttonVerticalPadding: CGFloat = isPadLandscape ? 16 : 18
@@ -1248,61 +1270,27 @@ struct SessionView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: isPadLandscape ? 34 : 24)
 
-                    VStack(spacing: verticalSpacing) {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.14),
-                                            Color.blue.opacity(0.30),
-                                            Color.blue.opacity(0.72)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .overlay(
-                                    Circle()
-                                        .fill(
-                                            RadialGradient(
-                                                colors: [
-                                                    Color.white.opacity(0.22),
-                                                    Color.clear
-                                                ],
-                                                center: .init(x: 0.34, y: 0.26),
-                                                startRadius: 4,
-                                                endRadius: heroCircleSize * 0.52
-                                            )
-                                        )
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white.opacity(0.14), lineWidth: 1.2)
-                                )
-                                .shadow(color: Color.blue.opacity(0.16), radius: 22, x: 0, y: 10)
+                    VStack(spacing: verticalSpacing + 14) {
+                        TimelineView(.animation) { context in
+                            let t = context.date.timeIntervalSinceReferenceDate
+                            let pulse = (sin(t * 1.05) + 1.0) * 0.5
+                            let breatheScale = 1.00 + (0.045 * pulse)
 
-                            VStack(spacing: heroCircleSize * 0.035) {
-                                Image("sheep")
-                                    .renderingMode(.template)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .foregroundStyle(.white)
-                                    .frame(width: sheepSize, height: sheepSize)
-
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                    .font(.system(size: antennaSize, weight: .bold))
-                                    .foregroundStyle(.white.opacity(0.95))
-                            }
-                            .offset(y: heroCircleSize * 0.04)
+                            Image("AppLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .clipShape(Circle())
+                                .shadow(color: Color.black.opacity(0.20), radius: 10, x: 0, y: 5)
+                                .scaleEffect(breatheScale)
+                                .frame(width: heroCircleSize * 1.30, height: heroCircleSize * 1.30)
+                                .frame(width: heroCircleSize + 40, height: heroCircleSize + 40)
+                                .compositingGroup()
                         }
-                        .frame(width: heroCircleSize, height: heroCircleSize)
-                        .frame(width: heroCircleSize + 40, height: heroCircleSize + 40)
-                        .compositingGroup()
 
                         VStack(spacing: 6) {
                             Text("Ready to work")
                                 .font(Device.isPhone ? .title2.weight(.bold) : .largeTitle.weight(.bold))
+
                             Text("Start a new session, or open recent sessions.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
@@ -1326,8 +1314,8 @@ struct SessionView: View {
                                     .fill(
                                         LinearGradient(
                                             colors: [
-                                                Color.blue.opacity(0.85),
-                                                Color.blue.opacity(0.65)
+                                                Color(red: 0.10, green: 0.53, blue: 0.95),
+                                                Color(red: 0.05, green: 0.40, blue: 0.86)
                                             ],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
@@ -1336,7 +1324,7 @@ struct SessionView: View {
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
                             )
                             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
@@ -1349,14 +1337,23 @@ struct SessionView: View {
                                     .padding(.vertical, buttonVerticalPadding)
                             }
                             .buttonStyle(.plain)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.white)
                             .background(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .fill(.thinMaterial)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color(red: 0.15, green: 0.58, blue: 0.98),
+                                                Color(red: 0.08, green: 0.45, blue: 0.90)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
                             )
                             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         }
@@ -1369,7 +1366,7 @@ struct SessionView: View {
                     HStack(spacing: 10) {
                         statusPill("Scanner", connected: scannerConnected)
                         statusPill("Scale", connected: scaleConnected)
-                        statusPill("Draft", connected: drafter.isMoving)
+                        statusPill("Draft", connected: DraftWifiController.hasDiscoveredDrafter())
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1397,6 +1394,7 @@ struct SessionView: View {
     }
 
     private func startNewSession() {
+        endDraftHardwareState()
         let s = store.createSession(named: "Session \(store.sessions.count + 1)")
         vm.setSession(s)
         sessionCoordinator.activeSessionID = s.id

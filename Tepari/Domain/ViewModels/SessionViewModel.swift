@@ -170,6 +170,12 @@ final class SessionViewModel: ObservableObject {
 
     private var lastDraftFiredEID: String? = nil
 
+    private var currentAnimalDraftCompleted: Bool = false
+    private var currentAnimalTraitsCompleted: Bool = false
+    private var currentAnimalPregCompleted: Bool = false
+    private var currentAnimalTreatmentCompleted: Bool = false
+    private var currentAnimalReleased: Bool = false
+
     private var cancellables: Set<AnyCancellable> = []
 
     // =====================================================
@@ -207,6 +213,7 @@ final class SessionViewModel: ObservableObject {
         self.gunListener = gunListener
 
         syncDraftEngineGateMap()
+        reloadDraftSetupFromStore()
         reloadTraitCapabilityFromSessionConfig()
         reloadTraitSettingsFromStore()
         reloadSessionTreatments()
@@ -233,6 +240,7 @@ final class SessionViewModel: ObservableObject {
         self.gunListener = newGunListener
 
         syncDraftEngineGateMap()
+        reloadDraftSetupFromStore()
         reloadTraitCapabilityFromSessionConfig()
         reloadTraitSettingsFromStore()
         reloadSessionTreatments()
@@ -370,12 +378,123 @@ final class SessionViewModel: ObservableObject {
         )
     }
 
+    private func draftModeType(from mode: DraftSetupMode) -> DraftModeType? {
+        switch mode {
+        case .off:
+            return nil
+        case .byWeight:
+            return .weight
+        case .byMob:
+            return .mob
+        case .byClass:
+            return .animalClass
+        }
+    }
+
     // =====================================================
     // MARK: - Draft engine sync
     // =====================================================
 
     private func syncDraftEngineGateMap() {
         draftEngine?.gateMap = draftSettings.gateMap
+    }
+
+    private func reloadDraftSetupFromStore() {
+        syncDraftEngineGateMap()
+
+        let setup = store.draftSetup(for: activeSession.id)
+
+        draftingEnabled = setup.isEnabled
+        selectedDraftMode = draftModeType(from: setup.mode)
+
+        nextDraftPosition = .straight
+        nextDraftRuleName = nil
+        lastDraftFiredEID = nil
+
+        guard let engine = draftEngine else { return }
+
+        engine.gateMap = draftSettings.gateMap
+        engine.defaultLogicalTarget = nil
+        engine.defaultPosition = .straight
+
+        switch setup.mode {
+        case .off:
+            engine.replaceAllRules([])
+
+        case .byWeight:
+            let rules: [DraftRule] = setup.weightRules.compactMap { row in
+                let name = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty || row.minWeight != nil || row.maxWeight != nil else { return nil }
+
+                return DraftRule(
+                    name: name.isEmpty ? "Weight Rule" : name,
+                    minWeight: row.minWeight,
+                    maxWeight: row.maxWeight,
+                    result: draftPosition(fromStoredValue: row.draftPositionRaw) ?? .straight,
+                    logicalTarget: nil
+                )
+            }
+            engine.replaceAllRules(rules)
+
+        case .byMob:
+            let rules: [DraftRule] = setup.mobRules.map { row in
+                DraftRule(
+                    name: row.mobName,
+                    mobID: row.mobID,
+                    result: draftPosition(fromStoredValue: row.draftPositionRaw) ?? .straight,
+                    logicalTarget: nil
+                )
+            }
+            engine.replaceAllRules(rules)
+
+            if let fallback = draftPosition(fromFallbackChoice: setup.fallback) {
+                engine.defaultPosition = fallback
+            }
+
+        case .byClass:
+            let rules: [DraftRule] = setup.classRules.compactMap { row in
+                let klass = row.animalClassRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !klass.isEmpty else { return nil }
+
+                return DraftRule(
+                    name: klass,
+                    klassEquals: klass,
+                    result: draftPosition(fromStoredValue: row.draftPositionRaw) ?? .straight,
+                    logicalTarget: nil
+                )
+            }
+            engine.replaceAllRules(rules)
+
+            if let fallback = draftPosition(fromFallbackChoice: setup.fallback) {
+                engine.defaultPosition = fallback
+            }
+        }
+    }
+
+    private func draftPosition(fromStoredValue rawValue: String) -> DraftPosition? {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "left":
+            return .left
+        case "straight":
+            return .straight
+        case "right":
+            return .right
+        case "hold", "farright", "far_right", "far right":
+            return .farRight
+        default:
+            return nil
+        }
+    }
+
+    private func draftPosition(fromFallbackChoice choice: DraftFallbackChoice) -> DraftPosition? {
+        switch choice {
+        case .keepCurrent:
+            return nil
+        case .left:
+            return .left
+        case .right:
+            return .right
+        }
     }
 
     // =====================================================
@@ -417,10 +536,14 @@ final class SessionViewModel: ObservableObject {
 
     func setDraftingEnabled(_ enabled: Bool) {
         draftingEnabled = enabled
-        if !enabled {
+
+        if enabled {
+            reloadDraftSetupFromStore()
+        } else {
             nextDraftPosition = .straight
             nextDraftRuleName = nil
             lastDraftFiredEID = nil
+            draftEngine?.replaceAllRules([])
         }
     }
 
@@ -531,9 +654,9 @@ final class SessionViewModel: ObservableObject {
         clearCurrent()
         resetDraftTotals()
         clearTraitDraft()
-        selectedDraftMode = nil
 
         syncDraftEngineGateMap()
+        reloadDraftSetupFromStore()
         reloadTraitCapabilityFromSessionConfig()
         reloadTraitSettingsFromStore()
         reloadSessionTreatments()
@@ -574,7 +697,12 @@ final class SessionViewModel: ObservableObject {
         lastDraftFiredEID = nil
         nextDraftPosition = .straight
         nextDraftRuleName = nil
-        selectedDraftMode = nil
+
+        currentAnimalDraftCompleted = false
+        currentAnimalTraitsCompleted = false
+        currentAnimalPregCompleted = false
+        currentAnimalTreatmentCompleted = false
+        currentAnimalReleased = false
 
         refreshCalculatedDose()
     }
@@ -729,9 +857,18 @@ final class SessionViewModel: ObservableObject {
             customTraits: cleanedCustom
         )
 
+        currentAnimalTraitsCompleted = true
+
         if settings.audioEnabled {
             scanSpeaker.say("Saved")
         }
+
+        attemptAutoReleaseIfReady()
+    }
+
+    func markTreatmentCompleted() {
+        currentAnimalTreatmentCompleted = true
+        attemptAutoReleaseIfReady()
     }
 
     // =====================================================
@@ -754,7 +891,7 @@ final class SessionViewModel: ObservableObject {
         }
 
         ingest(
-            eid: eid ?? currentEID,
+            eid: eid ?? "—",
             weight: weight ?? lastRawWeight,
             stableFlag: stable ?? false
         )
@@ -799,14 +936,27 @@ final class SessionViewModel: ObservableObject {
         let isRapidRepeatSameEID =
             eidClean != "—" &&
             eidClean == lastScanEID &&
-            Date().timeIntervalSince(lastScanTime) < 1.0
+            Date().timeIntervalSince(lastScanTime) < 5.0
 
         if eidClean != "—", !isRapidRepeatSameEID {
             lastScanEID = eidClean
             lastScanTime = Date()
         }
 
-        if eidClean != currentEID && eidClean != "—" && !isRapidRepeatSameEID {
+        let isNewCurrentAnimal =
+            eidClean != currentEID &&
+            eidClean != "—" &&
+            !isRapidRepeatSameEID
+
+        let hasFreshEIDInThisEvent = eid != "—" && !eid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        let isRepeatCurrentAnimal =
+            hasFreshEIDInThisEvent &&
+            eidClean == currentEID &&
+            eidClean != "—" &&
+            !isRapidRepeatSameEID
+
+        if isNewCurrentAnimal {
             autoCommitTraitsIfNeeded()
 
             let wasDuplicateInSession = store.records(for: activeSession.id)
@@ -872,6 +1022,21 @@ final class SessionViewModel: ObservableObject {
                     draftResult: nextDraftPosition,
                     matchedRuleName: nextDraftRuleName
                 )
+
+                attemptAutoReleaseIfReady()
+            }
+        } else if isRepeatCurrentAnimal {
+            let wasDuplicateInSession = store.records(for: activeSession.id)
+                .contains { $0.eidRaw == eidClean }
+
+            if wasDuplicateInSession {
+                AudioManager.shared.playTrigger(.rescanInSession, settings: settings)
+                pendingDuplicateEID = eidClean
+                showDuplicatePrompt = true
+
+                if !allowDuplicateOverwrite {
+                    return
+                }
             }
         }
 
@@ -916,6 +1081,12 @@ final class SessionViewModel: ObservableObject {
         pendingDuplicateEID = nil
         allowDuplicateOverwrite = false
         weightSamples.removeAll()
+
+        currentAnimalDraftCompleted = false
+        currentAnimalTraitsCompleted = false
+        currentAnimalPregCompleted = false
+        currentAnimalTreatmentCompleted = false
+        currentAnimalReleased = false
     }
 
     private func cancelLockedDisplayRelease() {
@@ -976,8 +1147,29 @@ final class SessionViewModel: ObservableObject {
         guard lastDraftFiredEID != eid else { return }
 
         lastDraftFiredEID = eid
+        currentAnimalDraftCompleted = true
+        currentAnimalReleased = false
+
         drafterController?.draftAnimal(to: position)
+        playGateAudio(for: position)
         bumpDraftTotals(for: position, weight: weight)
+    }
+
+    private func playGateAudio(for position: DraftPosition) {
+        let trigger: SpeechTrigger
+
+        switch position {
+        case .left:
+            trigger = .gate1
+        case .straight:
+            trigger = .gate2
+        case .right:
+            trigger = .gate3
+        case .farRight:
+            trigger = .gate4
+        }
+
+        AudioManager.shared.playTrigger(trigger, settings: settings)
     }
 
     private func bumpDraftTotals(for pos: DraftPosition, weight: Double?) {
@@ -1029,11 +1221,18 @@ final class SessionViewModel: ObservableObject {
         guard lastDraftFiredEID != eid else { return }
 
         lastDraftFiredEID = eid
+        currentAnimalDraftCompleted = true
+        currentAnimalPregCompleted = true
+        currentAnimalReleased = false
+
         drafterController?.draftAnimal(logical: logical, using: draftSettings.gateMap)
+        playGateAudio(for: position)
 
         nextDraftPosition = position
         nextDraftRuleName = "Preg Test"
         bumpDraftTotals(for: position, weight: currentWeight > 0 ? currentWeight : nil)
+
+        attemptAutoReleaseIfReady()
     }
 
     // =====================================================
@@ -1237,11 +1436,6 @@ final class SessionViewModel: ObservableObject {
         stableSince = nil
         lastStableFlag = true
 
-        let delay = max(0, Double(settings.weightOKSpeakDelayMs) / 1000.0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            AudioManager.shared.playTrigger(.weightRecorded, settings: self.settings)
-        }
-
         reloadSessionTreatments()
 
         store.addOrOverwriteRecord(
@@ -1253,19 +1447,35 @@ final class SessionViewModel: ObservableObject {
 
         if draftingEnabled {
             evaluateDraftDecisionForCurrentAnimal()
+        }
 
-            fireDraftIfNeeded(
-                eid: currentEID,
-                position: nextDraftPosition,
+        let lockedEID = currentEID
+        let lockedDraftPosition = nextDraftPosition
+        let lockedDraftRuleName = nextDraftRuleName
+        let shouldDraft = draftingEnabled
+
+        let delay = max(0, Double(settings.weightOKSpeakDelayMs) / 1000.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+
+            AudioManager.shared.playTrigger(.weightRecorded, settings: self.settings)
+
+            guard shouldDraft else { return }
+
+            self.fireDraftIfNeeded(
+                eid: lockedEID,
+                position: lockedDraftPosition,
                 weight: locked
             )
 
-            store.applyDraftResult(
-                sessionID: activeSession.id,
-                eidRaw: currentEID,
-                draftResult: nextDraftPosition,
-                matchedRuleName: nextDraftRuleName
+            self.store.applyDraftResult(
+                sessionID: self.activeSession.id,
+                eidRaw: lockedEID,
+                draftResult: lockedDraftPosition,
+                matchedRuleName: lockedDraftRuleName
             )
+
+            self.attemptAutoReleaseIfReady()
         }
 
         lastLockedEID = currentEID
@@ -1298,6 +1508,32 @@ final class SessionViewModel: ObservableObject {
     }
 
     // =====================================================
+    // MARK: - Auto release helpers
+    // =====================================================
+
+    private func attemptAutoReleaseIfReady() {
+        guard draftSettings.autoReleaseMode == .whenJobsComplete else { return }
+        guard !currentAnimalReleased else { return }
+        guard currentEID != "—", !currentEID.isEmpty else { return }
+        guard currentAnimalDraftCompleted else { return }
+
+        if traitsEnabled && !currentAnimalTraitsCompleted {
+            return
+        }
+
+        if !sessionTreatments.isEmpty && !currentAnimalTreatmentCompleted {
+            return
+        }
+
+        if resolvedDraftMode == .pregHistory && !currentAnimalPregCompleted {
+            return
+        }
+
+        currentAnimalReleased = true
+        drafterController?.releaseIfJobsComplete()
+    }
+
+    // =====================================================
     // MARK: - Duplicate handling
     // =====================================================
 
@@ -1315,6 +1551,11 @@ final class SessionViewModel: ObservableObject {
         weightSamples.removeAll()
 
         lastDraftFiredEID = nil
+        currentAnimalDraftCompleted = false
+        currentAnimalTraitsCompleted = false
+        currentAnimalPregCompleted = false
+        currentAnimalTreatmentCompleted = false
+        currentAnimalReleased = false
         refreshCalculatedDose()
     }
 
