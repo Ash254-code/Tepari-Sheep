@@ -72,16 +72,19 @@ enum DraftWifiController {
     static func stopDiscovery() {
         browser?.cancel()
         browser = nil
+        discoveredURL = nil
     }
 
     static func setBaseURL(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         baseURL = trimmed
-        discoveredURL = trimmed.isEmpty ? nil : trimmed
     }
 
     static func hasDiscoveredDrafter() -> Bool {
-        !currentBaseURL().isEmpty
+        if let discoveredURL, !discoveredURL.isEmpty {
+            return true
+        }
+        return false
     }
 
     private static func currentBaseURL() -> String {

@@ -17,36 +17,39 @@ enum SpeechTrigger: String, CaseIterable, Identifiable, Codable {
     case gate2
     case gate3
     case gate4
+    case animalClassAnnouncement
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .sessionStart:     return "Session Start"
-        case .newAnimal:        return "New Animal"
-        case .scanSuccessful:   return "Scan Successful"
-        case .rescanInSession:  return "Re-Scan in Session"
-        case .weightRecorded:   return "Weight Recorded"
-        case .notInDraft:       return "Not in Draft"
-        case .gate1:            return "Gate 1"
-        case .gate2:            return "Gate 2"
-        case .gate3:            return "Gate 3"
-        case .gate4:            return "Gate 4"
+        case .sessionStart:            return "Session Start"
+        case .newAnimal:               return "New Animal"
+        case .scanSuccessful:          return "Scan Successful"
+        case .rescanInSession:         return "Re-Scan in Session"
+        case .weightRecorded:          return "Weight Recorded"
+        case .notInDraft:              return "Not in Draft"
+        case .gate1:                   return "Gate 1"
+        case .gate2:                   return "Gate 2"
+        case .gate3:                   return "Gate 3"
+        case .gate4:                   return "Gate 4"
+        case .animalClassAnnouncement: return "Animal Class"
         }
     }
 
     static func defaultPhrase(for t: SpeechTrigger) -> String {
         switch t {
-        case .sessionStart:     return "Session started"
-        case .newAnimal:        return "New animal"
-        case .scanSuccessful:   return "Read OK"
-        case .rescanInSession:  return "Re-scan"
-        case .weightRecorded:   return "Weight recorded"
-        case .notInDraft:       return "Not in draft"
-        case .gate1:            return "Gate one"
-        case .gate2:            return "Gate two"
-        case .gate3:            return "Gate three"
-        case .gate4:            return "Gate four"
+        case .sessionStart:            return "Session started"
+        case .newAnimal:               return "New animal"
+        case .scanSuccessful:          return "Read OK"
+        case .rescanInSession:         return "Re-scan"
+        case .weightRecorded:          return "Weight recorded"
+        case .notInDraft:              return "Not in draft"
+        case .gate1:                   return "Gate one"
+        case .gate2:                   return "Gate two"
+        case .gate3:                   return "Gate three"
+        case .gate4:                   return "Gate four"
+        case .animalClassAnnouncement: return "Class"
         }
     }
 }
@@ -93,6 +96,7 @@ final class AppSettings: ObservableObject {
         static let autoDraftEnabled = "settings.autoDraftEnabled"
 
         static let speechTriggersJSON = "settings.speechTriggersJSON"
+        static let classSpeechSettingsJSON = "settings.classSpeechSettingsJSON"
 
         // User audio
         static let audioClipsJSON = "settings.audioClipsJSON"
@@ -229,6 +233,14 @@ final class AppSettings: ObservableObject {
             speechTriggers = decoded
         } else {
             speechTriggers = Self.defaultSpeechTriggers()
+        }
+
+        // Per-class speech settings
+        if let data = ud.data(forKey: Keys.classSpeechSettingsJSON) {
+            classSpeechSettingsByName =
+                (try? JSONDecoder().decode([String: SpeechTriggerSetting].self, from: data)) ?? [:]
+        } else {
+            classSpeechSettingsByName = [:]
         }
 
         // ✅ User audio (explicit types to avoid Swift ambiguity)
@@ -428,6 +440,16 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Key = normalized class name
+    @Published var classSpeechSettingsByName: [String: SpeechTriggerSetting] = [:] {
+        didSet {
+            guard !isLoading else { return }
+            if let data = try? JSONEncoder().encode(classSpeechSettingsByName) {
+                ud.set(data, forKey: Keys.classSpeechSettingsJSON)
+            }
+        }
+    }
+
     func speechSetting(for trigger: SpeechTrigger) -> SpeechTriggerSetting {
         speechTriggers[trigger] ?? SpeechTriggerSetting(
             enabled: true,
@@ -454,12 +476,86 @@ final class AppSettings: ObservableObject {
         return text.isEmpty ? nil : text
     }
 
+    /// Overload that supports class-scoped phrase lookup.
+    func phraseToSpeak(
+        for trigger: SpeechTrigger,
+        mobName: String? = nil,
+        className: String? = nil
+    ) -> String? {
+        guard audioEnabled else { return nil }
+
+        if trigger == .animalClassAnnouncement,
+           let className = className?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !className.isEmpty {
+            let s = classSpeechSetting(for: className)
+            guard s.enabled else { return nil }
+            let text = s.phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+
+        return phraseToSpeak(for: trigger)
+    }
+
     static func defaultSpeechTriggers() -> [SpeechTrigger: SpeechTriggerSetting] {
         var out: [SpeechTrigger: SpeechTriggerSetting] = [:]
         for t in SpeechTrigger.allCases {
             out[t] = SpeechTriggerSetting(enabled: true, phrase: SpeechTrigger.defaultPhrase(for: t))
         }
         return out
+    }
+
+    // =========================================================
+    // MARK: - Per-class speech settings
+    // =========================================================
+
+    func classSpeechSetting(for className: String) -> SpeechTriggerSetting {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = normalizedClassKey(cleaned)
+        let fallbackPhrase = cleaned.isEmpty
+            ? SpeechTrigger.defaultPhrase(for: .animalClassAnnouncement)
+            : cleaned
+
+        return classSpeechSettingsByName[key] ?? SpeechTriggerSetting(
+            enabled: false,
+            phrase: fallbackPhrase
+        )
+    }
+
+    func setClassSpeech(
+        for className: String,
+        enabled: Bool? = nil,
+        phrase: String? = nil
+    ) {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+
+        let key = normalizedClassKey(cleaned)
+        var cur = classSpeechSetting(for: cleaned)
+
+        if let enabled { cur.enabled = enabled }
+        if let phrase { cur.phrase = phrase }
+
+        classSpeechSettingsByName[key] = cur
+    }
+
+    func removeClassSpeech(for className: String) {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+
+        classSpeechSettingsByName.removeValue(forKey: normalizedClassKey(cleaned))
+    }
+
+    func pruneClassSpeechSettings(validClassNames: [String]) {
+        let valid = Set(
+            validClassNames
+                .map { normalizedClassKey($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        let filtered = classSpeechSettingsByName.filter { valid.contains($0.key) }
+        if filtered != classSpeechSettingsByName {
+            classSpeechSettingsByName = filtered
+        }
     }
 
     // =========================================================
@@ -542,6 +638,78 @@ final class AppSettings: ObservableObject {
         return config(for: trigger)
     }
 
+    // =========================================================
+    // MARK: - Per-class audio config
+    // =========================================================
+
+    func classAudioConfig(for className: String) -> TriggerAudioConfig {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return .default }
+
+        if let ov = scopedOverrides.first(where: {
+            $0.scope == .animalClass &&
+            $0.key.caseInsensitiveCompare(cleaned) == .orderedSame &&
+            $0.triggerRaw == SpeechTrigger.animalClassAnnouncement.rawValue
+        }) {
+            return ov.config
+        }
+
+        return .default
+    }
+
+    func setClassAudioConfig(for className: String, _ config: TriggerAudioConfig) {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+
+        if let idx = scopedOverrides.firstIndex(where: {
+            $0.scope == .animalClass &&
+            $0.key.caseInsensitiveCompare(cleaned) == .orderedSame &&
+            $0.triggerRaw == SpeechTrigger.animalClassAnnouncement.rawValue
+        }) {
+            scopedOverrides[idx].config = config
+        } else {
+            scopedOverrides.append(
+                ScopedAudioOverride(
+                    scope: .animalClass,
+                    key: cleaned,
+                    triggerRaw: SpeechTrigger.animalClassAnnouncement.rawValue,
+                    config: config
+                )
+            )
+        }
+    }
+
+    func removeClassAudioConfig(for className: String) {
+        let cleaned = className.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+
+        scopedOverrides.removeAll {
+            $0.scope == .animalClass &&
+            $0.key.caseInsensitiveCompare(cleaned) == .orderedSame &&
+            $0.triggerRaw == SpeechTrigger.animalClassAnnouncement.rawValue
+        }
+    }
+
+    func pruneClassAudioOverrides(validClassNames: [String]) {
+        let valid = Set(
+            validClassNames
+                .map { normalizedClassKey($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        let filtered = scopedOverrides.filter { override in
+            guard override.scope == .animalClass,
+                  override.triggerRaw == SpeechTrigger.animalClassAnnouncement.rawValue else {
+                return true
+            }
+            return valid.contains(normalizedClassKey(override.key))
+        }
+
+        if filtered != scopedOverrides {
+            scopedOverrides = filtered
+        }
+    }
+
     private func sanitizeAudioAssignments() {
         let validIDs = Set(audioClips.map { $0.id })
 
@@ -593,6 +761,13 @@ final class AppSettings: ObservableObject {
                 }
             }
         }
+    }
+
+    private func normalizedClassKey(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
     }
 
     private static func sortedAudioClips(_ clips: [UserAudioClip]) -> [UserAudioClip] {

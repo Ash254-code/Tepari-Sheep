@@ -66,6 +66,15 @@ struct CSVToolsView: View {
                 return "Import Historical Preg"
             }
         }
+
+        var duplicateThingLabel: String {
+            switch self {
+            case .animals:
+                return "animal"
+            case .historicalPreg:
+                return "record"
+            }
+        }
     }
 
     private enum DuplicateImportAction {
@@ -181,7 +190,7 @@ struct CSVToolsView: View {
                 importStatus = "Import cancelled."
             }
         } message: {
-            Text("Found \(duplicateCount) duplicate record\(duplicateCount == 1 ? "" : "s"). Do you want to skip duplicates or replace existing records?")
+            Text(duplicateAlertMessage)
         }
     }
 
@@ -413,13 +422,21 @@ struct CSVToolsView: View {
                     .font(.headline)
                     .foregroundStyle(GlassTheme.textPrimary(scheme))
 
-                ProgressView(value: importProgress, total: 1.0)
-                    .tint(.blue)
-                    .frame(width: 220)
+                Group {
+                    if selectedImportMode == .historicalPreg {
+                        ProgressView(value: importProgress, total: 1.0)
+                            .tint(.blue)
+                            .frame(width: 220)
 
-                Text("\(Int(importProgress * 100))% complete")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(GlassTheme.textPrimary(scheme))
+                        Text("\(Int(importProgress * 100))% complete")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(GlassTheme.textPrimary(scheme))
+                    } else {
+                        ProgressView()
+                            .tint(.blue)
+                            .scaleEffect(1.15)
+                    }
+                }
 
                 Text(importProgressLabel)
                     .font(.footnote)
@@ -570,6 +587,13 @@ struct CSVToolsView: View {
             )
     }
 
+    // MARK: - Derived text
+
+    private var duplicateAlertMessage: String {
+        let thing = selectedImportMode.duplicateThingLabel
+        return "Found \(duplicateCount) duplicate \(thing)\(duplicateCount == 1 ? "" : "s"). Do you want to skip duplicates or replace existing records?"
+    }
+
     // MARK: - File Handling / Import / Export
 
     private func readCSV(from url: URL) {
@@ -610,13 +634,17 @@ struct CSVToolsView: View {
         }
 
         switch selectedImportMode {
+
         case .animals:
+            let parsed = CSVAnimalImporter.parseAnimalsCSV(csvText: trimmed)
+            importProgressLabel = "Found \(parsed.rows.count) animals"
+
             let foundDuplicates = store.animalDuplicateCountForImport(csvText: trimmed)
             duplicateCount = foundDuplicates
 
             if foundDuplicates > 0 {
                 pendingDuplicateImportText = trimmed
-                showDuplicateAlert = true
+                showDuplicateAlert = true   // ✅ FIXED
                 return
             }
 
@@ -624,6 +652,9 @@ struct CSVToolsView: View {
             performAnimalImport(using: .skip)
 
         case .historicalPreg:
+            let parsed = CSVAnimalImporter.parseHistoricalPregCSV(csvText: trimmed)
+            importProgressLabel = "Found \(parsed.rows.count) records"
+
             let foundDuplicates = store.historicalPregDuplicateCountForImport(
                 csvText: trimmed,
                 farmID: nil
@@ -632,7 +663,7 @@ struct CSVToolsView: View {
 
             if foundDuplicates > 0 {
                 pendingDuplicateImportText = trimmed
-                showDuplicateAlert = true
+                showDuplicateAlert = true   // ✅ FIXED
                 return
             }
 
@@ -651,46 +682,53 @@ struct CSVToolsView: View {
     }
 
     private func performAnimalImport(using action: DuplicateImportAction) {
-        guard let text = pendingDuplicateImportText ?? Optional(trimmedImportText), !text.isEmpty else {
+        guard let text = pendingDuplicateImportText ?? Optional(trimmedImportText),
+              !text.isEmpty else {
             importStatus = "Paste or load a CSV first."
-            isImporting = false
             return
         }
 
         isImporting = true
-        importProgress = 0.5
-        importProgressLabel = "Importing animals..."
+        importProgress = 0
+
+        let parsed = CSVAnimalImporter.parseAnimalsCSV(csvText: text)
+        _ = parsed.rows.count
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+
             let storeAction: LocalDataStore.DuplicateImportAction =
                 (action == .skip) ? .skip : .replace
 
             let result = store.importAnimalsCSV(
                 csvText: text,
-                duplicateAction: storeAction
+                duplicateAction: storeAction,
+                progress: { completed, totalRows in
+                    let safeTotal = max(totalRows, 1)
+                    importProgress = Double(completed) / Double(safeTotal)
+                    importProgressLabel = "Processing \(completed) of \(totalRows) animals"
+                }
             )
 
             let summaryText = """
-Total Animals: \(result.totalAnimals)
-Animals Imported: \(result.animalsImported)
-Animals Skipped: \(result.animalsSkipped)
-Duplicates Skipped: \(result.duplicatesSkipped)
-Replaced: \(result.animalsReplaced)
-"""
+    Total Animals: \(result.totalAnimals)
+    Animals Imported: \(result.animalsImported)
+    Animals Skipped: \(result.animalsSkipped)
+    Duplicates Skipped: \(result.duplicatesSkipped)
+    Replaced: \(result.animalsReplaced)
+    """
 
             pendingDuplicateImportText = nil
             duplicateCount = 0
-            importStatus = ""
+            isImporting = false
             importProgress = 1
             importProgressLabel = "Animal import complete"
-            isImporting = false
+
             importSummary = ImportSummary(
                 title: selectedImportMode.summaryTitle,
                 message: summaryText
             )
         }
     }
-
     private func performHistoricalPregImport(using action: DuplicateImportAction) {
         guard let text = pendingDuplicateImportText ?? Optional(trimmedImportText), !text.isEmpty else {
             importStatus = "Paste or load a CSV first."
@@ -712,8 +750,10 @@ Replaced: \(result.animalsReplaced)
                 duplicateAction: storeAction,
                 progress: { completed, total in
                     let safeTotal = max(total, 1)
-                    importProgress = min(max(Double(completed) / Double(safeTotal), 0), 1)
-                    importProgressLabel = "Processing \(completed) of \(total) records"
+                    DispatchQueue.main.async {
+                        importProgress = min(max(Double(completed) / Double(safeTotal), 0), 1)
+                        importProgressLabel = "Processing \(completed) of \(total) records"
+                    }
                 }
             )
 
@@ -736,6 +776,28 @@ Replaced: \(result.replaced)
                 message: summaryText
             )
         }
+    }
+
+    private func estimatedImportRowCount(from csvText: String) -> Int {
+        let rows = csvText
+            .split(whereSeparator: \.isNewline)
+            .map {
+                String($0)
+                    .replacingOccurrences(of: "\r", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+
+        guard !rows.isEmpty else { return 0 }
+
+        let first = rows[0]
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+
+        let looksLikeHeader = first.contains("eid")
+        return max(0, rows.count - (looksLikeHeader ? 1 : 0))
     }
 
     private func startExportFlow() {

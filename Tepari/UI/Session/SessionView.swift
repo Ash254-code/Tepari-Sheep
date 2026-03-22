@@ -1332,11 +1332,6 @@ struct SessionView: View {
 
                     Spacer(minLength: isPadLandscape ? 14 : 22)
 
-                    HStack(spacing: 10) {
-                        statusPill("Scanner", connected: scannerConnected)
-                        statusPill("Scale", connected: scaleConnected)
-                        statusPill("Draft", connected: DraftWifiController.hasDiscoveredDrafter())
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

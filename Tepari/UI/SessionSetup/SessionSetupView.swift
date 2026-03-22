@@ -14,7 +14,7 @@ struct SessionSetupView: View {
     @EnvironmentObject private var sessionCoordinator: ActiveSessionCoordinator
     @EnvironmentObject private var presetStore: TreatmentPresetStore
     @EnvironmentObject private var settings: AppSettings
-    
+
     let sessionID: UUID
     var onDone: (() -> Void)? = nil
 
@@ -52,6 +52,13 @@ struct SessionSetupView: View {
     @State private var recordCustom2: Bool = false
     @State private var lastTraitsOn: Bool = false
     @State private var didAssignSuggestedName: Bool = false
+
+    // =========================================================
+    // MARK: Quick Start Templates
+    // =========================================================
+
+    @State private var showSaveTemplatePrompt: Bool = false
+    @State private var templateNameText: String = ""
 
     // =========================================================
     // MARK: Defaults / Treatments
@@ -146,10 +153,13 @@ struct SessionSetupView: View {
         overwriteMob && !isMixedMobSelection
     }
 
+    private var canSaveTemplate: Bool {
+        selectedFarmID != nil && !selectedTypes.isEmpty
+    }
+
     // =========================================================
     // MARK: Derived navigation
     // =========================================================
-
 
     private var isScanOnly: Bool {
         selectedTypes == [.scan]
@@ -385,6 +395,7 @@ struct SessionSetupView: View {
 
         return ""
     }
+
     private var readerModeLabel: String {
         if let st = scannerType { return st.label }
         return "—"
@@ -393,6 +404,19 @@ struct SessionSetupView: View {
     private var weightModeLabel: String {
         if let ws = weightSource { return ws.label }
         return "—"
+    }
+
+    private var suggestedTemplateName: String {
+        let farm = resolvedFarmName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mob = resolvedMobLabelForName()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let type = primaryTypeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var parts: [String] = []
+        if !farm.isEmpty { parts.append(farm) }
+        if !type.isEmpty { parts.append(type) }
+        if !mob.isEmpty { parts.append(mob) }
+
+        return parts.isEmpty ? "Quick Start" : parts.joined(separator: " - ")
     }
 
     // =========================================================
@@ -456,6 +480,20 @@ struct SessionSetupView: View {
                 } message: {
                     Text("This will create a new Mob in Settings for the selected Farm.")
                 }
+                .alert("Save as Template", isPresented: $showSaveTemplatePrompt) {
+                    TextField("Template name", text: $templateNameText)
+
+                    Button("Cancel", role: .cancel) {
+                        templateNameText = ""
+                    }
+
+                    Button("Save") {
+                        saveQuickStartTemplate()
+                    }
+                    .disabled(templateNameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canSaveTemplate)
+                } message: {
+                    Text("Save this setup as a quick start template for future sessions.")
+                }
                 .alert("WARNING", isPresented: $showOverwriteConfirm) {
                     Button("Cancel", role: .cancel) { revertPendingOverwriteToggle() }
                     Button("Overwrite", role: .destructive) { confirmPendingOverwriteToggle() }
@@ -517,12 +555,16 @@ struct SessionSetupView: View {
     @ViewBuilder
     private var stepBody: some View {
         switch step {
-        case .farm:
-            SessionSetupFarmStepView(
-                selectedFarmID: $selectedFarmID,
-                manualFarmName: $manualFarmName,
-                onAutoNext: { goNext() }
-            )
+            case .farm:
+                SessionSetupFarmStepView(
+                    selectedFarmID: $selectedFarmID,
+                    manualFarmName: $manualFarmName,
+                    templates: store.sessionQuickStartTemplates,
+                    onTemplateSelected: { template in
+                        applyTemplateAndStart(template)
+                    },
+                    onAutoNext: { goNext() }
+                )
 
         case .yards:
             SessionSetupYardStepView(
@@ -671,6 +713,7 @@ struct SessionSetupView: View {
             )
         }
     }
+
     // =========================================================
     // MARK: Bottom Bar
     // =========================================================
@@ -690,6 +733,16 @@ struct SessionSetupView: View {
                 Spacer()
 
                 if step == .review {
+                    Button {
+                        openSaveTemplatePrompt()
+                    } label: {
+                        Label("Save as Template", systemImage: "square.stack.3d.up.fill")
+                            .foregroundStyle(canSaveTemplate ? Color.primary : Color.secondary)
+                    }
+                    .glassButton(.compact)
+                    .disabled(!canSaveTemplate)
+                    .opacity(canSaveTemplate ? 1 : 0.55)
+
                     Button { startSession() } label: {
                         Label("Start", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(Color.blue)
@@ -825,6 +878,126 @@ private extension SessionSetupView {
                 showOverwriteConfirm = false
             }
         }
+    }
+
+    func applyTemplateAndStart(_ template: LocalDataStore.SessionQuickStartTemplate) {
+        selectedFarmID = template.farmID
+        manualFarmName = ""
+
+        selectedYard = template.yardName
+        selectedTypes = Set(template.sessionTypes)
+
+        scannerType = template.scannerType
+        weightSource = template.weightSource
+
+        scanningEnabled = template.scanningEnabled
+        weighingEnabled = template.weighingEnabled
+
+        recordTreatments = template.recordTreatments
+        recordLambsProduced = template.recordLambsProduced
+        recordFleeceWeight = template.recordFleeceWeight
+        recordStapleLength = template.recordStapleLength
+        recordMicron = template.recordMicron
+
+        recordCustom1 = template.recordCustom1
+        recordCustom2 = template.recordCustom2
+
+        selectedSex = template.defaultSex
+        selectedClass = template.defaultClass
+        selectedBreed = template.defaultBreed ?? ""
+        selectedBirthYear = template.defaultBirthYear
+        selectedBirthMonth = template.defaultBirthMonth
+        selectedStatus = template.defaultStatus
+
+        selectedMobName = template.defaultMobName ?? SessionSetupMobStepView.noneSentinel
+
+        overwriteSex = template.overwriteSex
+        overwriteBreed = template.overwriteBreed
+        overwriteMob = template.overwriteMob
+        overwriteClass = template.overwriteClass
+        overwriteBirthYear = template.overwriteBirthYear
+        overwriteBirthMonth = template.overwriteBirthMonth
+        overwriteStatus = template.overwriteStatus
+
+        tepariGunEnabled = template.tepariGunEnabled
+        tepariTreatmentID = template.tepariTreatmentID
+
+        selectedTreatmentIDs = Set(template.treatmentSelections.map { $0.treatmentID })
+        treatmentDoseOverrides = Dictionary(
+            uniqueKeysWithValues: template.treatmentSelections.compactMap { selection in
+                guard let override = selection.doseOverride else { return nil }
+                return (selection.treatmentID, override)
+            }
+        )
+
+        sessionNameText = ""
+        didAssignSuggestedName = false
+
+        applyLockedPlanFromTypes()
+        startSession()
+    }
+
+    // ---------- Quick Start Templates ----------
+
+    func openSaveTemplatePrompt() {
+        templateNameText = suggestedTemplateName
+        showSaveTemplatePrompt = true
+    }
+
+    func saveQuickStartTemplate() {
+        let trimmedName = templateNameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard let farmID = selectedFarmID else { return }
+
+        store.saveSessionQuickStartTemplate(
+            LocalDataStore.SessionQuickStartTemplate(
+                name: trimmedName,
+                farmID: farmID,
+                yardName: selectedYard?.trimmedOrNil,
+                sessionTypes: Array(selectedTypes).sorted { $0.rawValue < $1.rawValue },
+                scannerType: scannerType,
+                weightSource: weightSource,
+                scanningEnabled: scanningEnabled == true,
+                weighingEnabled: weighingEnabled == true,
+                recordTreatments: recordTreatments,
+                recordLambsProduced: recordLambsProduced,
+                recordFleeceWeight: recordFleeceWeight,
+                recordStapleLength: recordStapleLength,
+                recordMicron: recordMicron,
+                recordCustom1: recordCustom1,
+                recordCustom2: recordCustom2,
+                defaultSex: selectedSex,
+                defaultClass: selectedClass,
+                defaultBreed: selectedBreed.trimmedOrNil,
+                defaultBirthYear: selectedBirthYear,
+                defaultBirthMonth: selectedBirthMonth,
+                defaultStatus: selectedStatus,
+                defaultMobName: {
+                    let mobTrim = selectedMobName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if mobTrim.isEmpty || mobTrim == SessionSetupMobStepView.noneSentinel {
+                        return nil
+                    }
+                    return mobTrim
+                }(),
+                overwriteSex: overwriteSex,
+                overwriteBreed: overwriteBreed,
+                overwriteMob: shouldApplyMobOverwrite,
+                overwriteClass: overwriteClass,
+                overwriteBirthYear: overwriteBirthYear,
+                overwriteBirthMonth: overwriteBirthMonth,
+                overwriteStatus: overwriteStatus,
+                tepariGunEnabled: tepariGunEnabled,
+                tepariTreatmentID: tepariTreatmentID,
+                treatmentSelections: selectedTreatmentIDs.map { treatmentID in
+                    LocalDataStore.SessionQuickStartTemplate.TreatmentSelection(
+                        treatmentID: treatmentID,
+                        doseOverride: treatmentDoseOverrides[treatmentID]
+                    )
+                }
+            )
+        )
+
+        templateNameText = ""
     }
 
     // ---------- Add Mob ----------
@@ -1111,6 +1284,7 @@ private extension SessionSetupView {
 
         store.setOverwriteSexEnabled(overwriteSex, for: sessionID)
         store.setOverwriteClassEnabled(overwriteClass, for: sessionID)
+        store.setOverwriteMobEnabled(shouldApplyMobOverwrite, for: sessionID)
     }
 }
 

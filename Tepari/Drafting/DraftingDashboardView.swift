@@ -7,25 +7,31 @@ struct DraftDashboardView: View {
     @EnvironmentObject private var draftSettings: DraftSettings
     @EnvironmentObject private var store: LocalDataStore
     @EnvironmentObject private var vm: SessionViewModel
+    @EnvironmentObject private var appSettings: AppSettings
+    @EnvironmentObject private var animalClassStore: AnimalClassStore
 
     @Environment(\.horizontalSizeClass) private var hSize
     private var isPhoneCompact: Bool { hSize == .compact }
 
+    private var autoReleaseEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { draftSettings.autoReleaseMode != .off },
+            set: { isOn in
+                draftSettings.autoReleaseMode = isOn ? .on : .off
+            }
+        )
+    }
+
     private var autoReleaseStatusText: String {
-        switch draftSettings.autoReleaseMode {
-        case .off:
-            return "Gate stays in position until other control logic takes over."
-        case .timed:
-            return "Gate releases automatically after the timed hold."
-        case .whenJobsComplete:
-            return "Gate releases automatically once all required session jobs are complete."
-        }
+        autoReleaseEnabledBinding.wrappedValue
+            ? "Auto release is on. After the gate hold time, the animal will release automatically."
+            : "Auto release is off. The animal stays held until another control action happens."
     }
 
     @AppStorage("draft.audio.left") private var leftGateAudioID: String = ""
     @AppStorage("draft.audio.straight") private var straightGateAudioID: String = ""
     @AppStorage("draft.audio.right") private var rightGateAudioID: String = ""
-    @AppStorage("draft.audio.hold") private var holdGateAudioID: String = ""
+    @AppStorage("draft.audio.gate4") private var gate4AudioID: String = ""
 
     // =====================================================
     // MARK: - Local setup state
@@ -35,16 +41,25 @@ struct DraftDashboardView: View {
         case left
         case straight
         case right
-        case hold
+        case gate4
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
+            case .left: return "Gate 1"
+            case .straight: return "Gate 2"
+            case .right: return "Gate 3"
+            case .gate4: return "Gate 4"
+            }
+        }
+
+        var laneTitle: String {
+            switch self {
             case .left: return "Left"
             case .straight: return "Straight"
             case .right: return "Right"
-            case .hold: return "Hold"
+            case .gate4: return "Gate 4"
             }
         }
 
@@ -53,7 +68,7 @@ struct DraftDashboardView: View {
             case .left: return .blue
             case .straight: return .green
             case .right: return .purple
-            case .hold: return .orange
+            case .gate4: return .orange
             }
         }
 
@@ -62,7 +77,7 @@ struct DraftDashboardView: View {
             case .left: return .left
             case .straight: return .straight
             case .right: return .right
-            case .hold: return .farRight
+            case .gate4: return .farRight
             }
         }
     }
@@ -72,17 +87,17 @@ struct DraftDashboardView: View {
         case left
         case straight
         case right
-        case hold
+        case gate4
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .noDraft: return "No Draft"
-            case .left: return "Left"
-            case .straight: return "Straight"
-            case .right: return "Right"
-            case .hold: return "Hold"
+            case .left: return "Gate 1"
+            case .straight: return "Gate 2"
+            case .right: return "Gate 3"
+            case .gate4: return "Gate 4"
             }
         }
 
@@ -92,7 +107,7 @@ struct DraftDashboardView: View {
             case .left: return .left
             case .straight: return .straight
             case .right: return .right
-            case .hold: return .farRight
+            case .gate4: return .farRight
             }
         }
     }
@@ -113,7 +128,7 @@ struct DraftDashboardView: View {
 
     private struct ClassDraftRuleRow: Identifiable, Hashable {
         let id = UUID()
-        var animalClass: LocalDataStore.AnimalClass
+        var animalClassName: String
         var bucket: DraftGateBucket
     }
 
@@ -158,10 +173,6 @@ struct DraftDashboardView: View {
         activeSession?.name ?? "No Active Session"
     }
 
-    private var draftModeDisplayText: String {
-        draftState.setup.selectedMode?.rawValue ?? "Not selected"
-    }
-
     private var currentFarmID: UUID? {
         store.sessionFarmID[vm.activeSession.id]
     }
@@ -172,16 +183,30 @@ struct DraftDashboardView: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private var availableAnimalClasses: [LocalDataStore.AnimalClass] {
-        LocalDataStore.AnimalClass.allCases
+    private var availableAnimalClasses: [String] {
+        let settingsClasses = animalClassStore.classes
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+
+        if !settingsClasses.isEmpty {
+            return settingsClasses
+        }
+
+        return LocalDataStore.AnimalClass.allCases
+            .map(\.label)
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private var orderedGateBuckets: [DraftGateBucket] {
-        [.left, .straight, .right, .hold]
+        [.left, .straight, .right, .gate4]
     }
 
     private var audioOptions: [AudioPickerOption] {
-        []
+        appSettings.audioClips.map {
+            AudioPickerOption(id: $0.id.uuidString, title: $0.name)
+        }
     }
 
     var body: some View {
@@ -211,6 +236,12 @@ struct DraftDashboardView: View {
         }
         .onChange(of: currentFarmID) { _, _ in
             seedMobRulesIfNeeded(force: true)
+            seedClassRulesIfNeeded(force: true)
+            saveDraftSetupToStore()
+            applyDraftRulesToEngine()
+        }
+        .onChange(of: animalClassStore.classes) { _, _ in
+            seedClassRulesIfNeeded(force: true)
             saveDraftSetupToStore()
             applyDraftRulesToEngine()
         }
@@ -398,15 +429,15 @@ struct DraftDashboardView: View {
                 Divider().opacity(0.22)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Auto Release")
-                        .font(.subheadline.weight(.semibold))
+                    HStack {
+                        Text("Auto Release")
+                            .font(.subheadline.weight(.semibold))
 
-                    Picker("Auto Release", selection: $draftSettings.autoReleaseMode) {
-                        ForEach(DraftSettings.AutoReleaseMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
+                        Spacer()
+
+                        Toggle("", isOn: autoReleaseEnabledBinding)
+                            .labelsHidden()
                     }
-                    .pickerStyle(.segmented)
 
                     Text(autoReleaseStatusText)
                         .font(.caption)
@@ -417,9 +448,6 @@ struct DraftDashboardView: View {
                 if let selectedMode = draftState.setup.selectedMode {
                     Divider().opacity(0.22)
                     modeSetupCard(selectedMode)
-
-                    Divider().opacity(0.22)
-                    manualDraftSetupSection
                 }
 
                 if !draftState.advanced.ruleSummary.isEmpty {
@@ -603,17 +631,30 @@ struct DraftDashboardView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.blue.opacity(0.20) : Color.white.opacity(0.06))
+                    .fill(
+                        isSelected
+                        ? Color.accentColor.opacity(0.18)
+                        : Color(.secondarySystemBackground)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.blue.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 1)
+                    .stroke(
+                        isSelected
+                        ? Color.accentColor.opacity(0.75)
+                        : Color.black.opacity(0.10),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             )
-            .foregroundStyle(isSelected ? Color.blue : Color.primary)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .shadow(
+                color: isSelected ? Color.accentColor.opacity(0.12) : .clear,
+                radius: 6, y: 2
+            )
         }
         .buttonStyle(.plain)
     }
@@ -642,75 +683,6 @@ struct DraftDashboardView: View {
                 fileSetupEditor
             }
         }
-    }
-
-    private var manualDraftSetupSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Draft Setup")
-                .font(.subheadline.weight(.semibold))
-
-            Text("Manual draft controls for bench testing or quick gate firing.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            manualDraftButtonsGrid
-        }
-    }
-
-    private var manualDraftButtonsGrid: some View {
-        let columns = isPhoneCompact
-            ? [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-            : [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ]
-
-        return LazyVGrid(columns: columns, spacing: 12) {
-            manualDraftButton(title: "Left", position: .left, color: .blue)
-            manualDraftButton(title: "Straight", position: .straight, color: .green)
-            manualDraftButton(title: "Right", position: .right, color: .purple)
-            manualDraftButton(title: "Far Right", position: .farRight, color: .orange)
-        }
-    }
-
-    private func manualDraftButton(title: String, position: DraftPosition, color: Color) -> some View {
-        Button {
-            drafter.manualTest(position: position)
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Circle()
-                        .fill(color)
-                        .frame(width: 12, height: 12)
-
-                    Spacer()
-                }
-
-                Spacer(minLength: 0)
-
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-
-                Text("Fire gate")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 94, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(color.opacity(0.14))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(color.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     // =====================================================
@@ -1113,9 +1085,9 @@ struct DraftDashboardView: View {
             gateAudioPicker(bucket)
 
             Menu {
-                ForEach(unassignedAnimalClasses, id: \.self) { animalClass in
-                    Button(animalClass.label) {
-                        addAnimalClass(animalClass, to: bucket)
+                ForEach(unassignedAnimalClasses, id: \.self) { animalClassName in
+                    Button(animalClassName) {
+                        addAnimalClass(named: animalClassName, to: bucket)
                     }
                 }
             } label: {
@@ -1139,7 +1111,7 @@ struct DraftDashboardView: View {
 
     private func classChip(rule: ClassDraftRuleRow) -> some View {
         HStack(spacing: 8) {
-            Text(rule.animalClass.label)
+            Text(rule.animalClassName)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
 
@@ -1204,7 +1176,7 @@ struct DraftDashboardView: View {
         switch mobFallback {
         case .noDraft:
             return "Any mob not listed above will not be explicitly drafted by mob rules."
-        case .left, .straight, .right, .hold:
+        case .left, .straight, .right, .gate4:
             return "Any mob not listed above will draft to \(mobFallback.title)."
         }
     }
@@ -1213,7 +1185,7 @@ struct DraftDashboardView: View {
         switch classFallback {
         case .noDraft:
             return "Any class not listed above will not be explicitly drafted by class rules."
-        case .left, .straight, .right, .hold:
+        case .left, .straight, .right, .gate4:
             return "Any class not listed above will draft to \(classFallback.title)."
         }
     }
@@ -1223,19 +1195,57 @@ struct DraftDashboardView: View {
     // =====================================================
 
     private func gateAudioPicker(_ bucket: DraftGateBucket) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let selectedID = audioBinding(for: bucket).wrappedValue
+        let selectedName = audioOptions.first(where: { $0.id == selectedID })?.title ?? "None"
+
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Gate Audio")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            Picker("Gate Audio", selection: audioBinding(for: bucket)) {
-                Text("None").tag("")
-
-                ForEach(audioOptions) { option in
-                    Text(option.title).tag(option.id)
+            Menu {
+                Button("None") {
+                    audioBinding(for: bucket).wrappedValue = ""
                 }
+
+                if !audioOptions.isEmpty {
+                    Divider()
+
+                    ForEach(audioOptions) { option in
+                        Button {
+                            audioBinding(for: bucket).wrappedValue = option.id
+                        } label: {
+                            if option.id == selectedID {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(selectedName)
+                        .foregroundStyle(selectedID.isEmpty ? .secondary : .primary)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.secondarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
             }
-            .pickerStyle(.menu)
+            .buttonStyle(.plain)
 
             Text(audioSummaryText(for: bucket))
                 .font(.caption2)
@@ -1252,8 +1262,8 @@ struct DraftDashboardView: View {
             return $straightGateAudioID
         case .right:
             return $rightGateAudioID
-        case .hold:
-            return $holdGateAudioID
+        case .gate4:
+            return $gate4AudioID
         }
     }
 
@@ -1402,8 +1412,8 @@ struct DraftDashboardView: View {
         case .animalClass:
             let rules: [DraftRule] = classRules.map { row in
                 DraftRule(
-                    name: row.animalClass.rawValue,
-                    klassEquals: row.animalClass.rawValue,
+                    name: row.animalClassName,
+                    klassEquals: row.animalClassName,
                     result: row.bucket.draftPosition,
                     logicalTarget: nil
                 )
@@ -1477,13 +1487,9 @@ struct DraftDashboardView: View {
             )
         }
 
-        classRules = setup.classRules.compactMap {
-            guard let animalClass = LocalDataStore.AnimalClass(rawValue: $0.animalClassRaw) else {
-                return nil
-            }
-
-            return ClassDraftRuleRow(
-                animalClass: animalClass,
+        classRules = setup.classRules.map {
+            ClassDraftRuleRow(
+                animalClassName: $0.animalClassRaw,
                 bucket: gateBucket(from: $0.draftPositionRaw) ?? .straight
             )
         }
@@ -1532,7 +1538,7 @@ struct DraftDashboardView: View {
             classRules: classRules.map {
                 SessionClassDraftRule(
                     id: $0.id,
-                    animalClassRaw: $0.animalClass.rawValue,
+                    animalClassRaw: $0.animalClassName,
                     draftPositionRaw: $0.bucket.rawValue
                 )
             },
@@ -1586,7 +1592,7 @@ struct DraftDashboardView: View {
             return .keepCurrent
         case .left:
             return .left
-        case .straight, .right, .hold:
+        case .straight, .right, .gate4:
             return .right
         }
     }
@@ -1603,7 +1609,8 @@ struct DraftDashboardView: View {
     }
 
     private func gateBucket(from rawValue: String) -> DraftGateBucket? {
-        DraftGateBucket(rawValue: rawValue)
+        if rawValue == "hold" { return .gate4 }
+        return DraftGateBucket(rawValue: rawValue)
     }
 
     private func trimNumber(_ value: Double) -> String {
@@ -1636,7 +1643,10 @@ struct DraftDashboardView: View {
         guard force || !didSeedClassRules else { return }
         didSeedClassRules = true
 
-        let existingByClass = Dictionary(uniqueKeysWithValues: classRules.map { ($0.animalClass, $0) })
+        let validNames = Set(availableAnimalClasses)
+        classRules = classRules.filter { validNames.contains($0.animalClassName) }
+
+        let existingByClass = Dictionary(uniqueKeysWithValues: classRules.map { ($0.animalClassName, $0) })
         classRules = availableAnimalClasses.compactMap { existingByClass[$0] }
     }
 
@@ -1749,7 +1759,9 @@ struct DraftDashboardView: View {
     }
 
     private func classes(in bucket: DraftGateBucket) -> [ClassDraftRuleRow] {
-        classRules.filter { $0.bucket == bucket }
+        classRules
+            .filter { $0.bucket == bucket }
+            .sorted { $0.animalClassName.localizedCaseInsensitiveCompare($1.animalClassName) == .orderedAscending }
     }
 
     private func moveClass(_ id: UUID, to bucket: DraftGateBucket) {
@@ -1757,16 +1769,16 @@ struct DraftDashboardView: View {
         classRules[index].bucket = bucket
     }
 
-    private func addAnimalClass(_ animalClass: LocalDataStore.AnimalClass, to bucket: DraftGateBucket) {
-        if let index = classRules.firstIndex(where: { $0.animalClass == animalClass }) {
+    private func addAnimalClass(named animalClassName: String, to bucket: DraftGateBucket) {
+        if let index = classRules.firstIndex(where: { $0.animalClassName == animalClassName }) {
             classRules[index].bucket = bucket
         } else {
-            classRules.append(.init(animalClass: animalClass, bucket: bucket))
+            classRules.append(.init(animalClassName: animalClassName, bucket: bucket))
         }
     }
 
-    private var unassignedAnimalClasses: [LocalDataStore.AnimalClass] {
-        let assigned = Set(classRules.map(\.animalClass))
+    private var unassignedAnimalClasses: [String] {
+        let assigned = Set(classRules.map(\.animalClassName))
         return availableAnimalClasses.filter { !assigned.contains($0) }
     }
 
@@ -1826,7 +1838,7 @@ struct DraftDashboardView: View {
         case 0: return "Left"
         case 1: return "Straight"
         case 2: return "Right"
-        case 3: return "Far Right"
+        case 3: return "Gate 4"
         default: return "Gate"
         }
     }
@@ -1887,11 +1899,11 @@ struct DraftDashboardView: View {
     private func modeDescription(for mode: DraftModeType) -> String {
         switch mode {
         case .weight:
-            return "Assign weight bands into Left, Straight, Right and Hold columns."
+            return "Assign weight bands into Gate 1, Gate 2, Gate 3 and Gate 4 columns."
         case .mob:
-            return "Assign mobs into Left, Straight, Right and Hold columns, with a fallback for other mobs."
+            return "Assign mobs into Gate 1, Gate 2, Gate 3 and Gate 4 columns, with a fallback for other mobs."
         case .animalClass:
-            return "Assign classes into Left, Straight, Right and Hold columns, with a fallback for other classes."
+            return "Assign classes into Gate 1, Gate 2, Gate 3 and Gate 4 columns, with a fallback for other classes."
         case .file:
             return "Use this for future imported rule files."
         case .pregHistory:

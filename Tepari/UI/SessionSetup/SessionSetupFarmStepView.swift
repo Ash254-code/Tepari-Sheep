@@ -18,10 +18,11 @@ struct SessionSetupFarmStepView: View {
     @Binding var manualFarmName: String
 
     // =========================================================
-    // MARK: Actions
+    // MARK: Inputs
     // =========================================================
 
-    /// ✅ Wizard container injects this (same thing your Next button does)
+    let templates: [LocalDataStore.SessionQuickStartTemplate]
+    let onTemplateSelected: (LocalDataStore.SessionQuickStartTemplate) -> Void
     let onAutoNext: () -> Void
 
     // =========================================================
@@ -30,22 +31,40 @@ struct SessionSetupFarmStepView: View {
 
     @State private var showManualEntry: Bool = false
     @State private var didAutoAdvance: Bool = false
-
-    /// ✅ used to give a little “selected” pulse + delay before advancing
     @State private var pendingAutoNextWork: DispatchWorkItem? = nil
+    @State private var pendingTemplateWork: DispatchWorkItem? = nil
+    @State private var selectedTemplateID: UUID? = nil
 
     // =========================================================
     // MARK: Tuning
     // =========================================================
 
     private let selectionPulseDuration: Double = 0.6
-    private let autoAdvanceDelay: Double = 0.2   // “split second” so you see the highlight
+    private let autoAdvanceDelay: Double = 0.2
 
     // =========================================================
     // MARK: Derived
     // =========================================================
 
     private var hasFarmsConfigured: Bool { !store.farms.isEmpty }
+    private var hasTemplates: Bool { !templates.isEmpty }
+
+    private var gridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 12),
+            GridItem(.flexible(), spacing: 12)
+        ]
+    }
+
+    private var farmTilesData: [FarmTileData] {
+        Array(store.farms.prefix(8)).map { farm in
+            FarmTileData(
+                id: farm.id,
+                title: farm.name,
+                subtitle: farm.pic.isEmpty ? "No PIC saved" : "PIC \(farm.pic)"
+            )
+        }
+    }
 
     // =========================================================
     // MARK: Body
@@ -55,71 +74,162 @@ struct SessionSetupFarmStepView: View {
         ZStack {
             GlassBackground()
 
-            VStack(spacing: 0) {
-
-                if hasFarmsConfigured && !showManualEntry {
-
-                    WizardTileGrid(
-                        title: "Which Farm?",
-                        caption: "Select where today’s session belongs.",
-                        tiles: farmTiles,
-                        selection: farmSelectionBinding,
-                        allowsMultipleSelection: false,
-                        onSelectionChanged: { sel in
-                            // ✅ Only auto-advance on a real farm selection
-                            guard let first = sel.first,
-                                  first != "__add_farm__",
-                                  let uuid = UUID(uuidString: first) else { return }
-
-                            guard !didAutoAdvance else { return }
-                            didAutoAdvance = true
-
-                            // ✅ cancel any previous pending auto-next
-                            pendingAutoNextWork?.cancel()
-
-                            // ✅ Ensure the selection animates in before we move on
-                            withAnimation(.spring(response: selectionPulseDuration, dampingFraction: 1.0)) {
-                                selectedFarmID = uuid
-                                manualFarmName = ""
-                            }
-
-                            let work = DispatchWorkItem {
-                                onAutoNext()
-                            }
-                            pendingAutoNextWork = work
-                            DispatchQueue.main.asyncAfter(deadline: .now() + autoAdvanceDelay, execute: work)
-                        }
-                    )
-
-                } else {
-                    noFarmsManualEntryCard
-                        .padding(16)
-                }
+            if hasFarmsConfigured && !showManualEntry {
+                mainPickerContent
+            } else {
+                noFarmsManualEntryCard
+                    .padding(16)
             }
         }
         .onAppear {
             didAutoAdvance = false
             pendingAutoNextWork?.cancel()
             pendingAutoNextWork = nil
+            pendingTemplateWork?.cancel()
+            pendingTemplateWork = nil
         }
         .onDisappear {
-            // ✅ if user navigates back quickly, don’t fire auto-next later
             pendingAutoNextWork?.cancel()
             pendingAutoNextWork = nil
+            pendingTemplateWork?.cancel()
+            pendingTemplateWork = nil
         }
         .onChange(of: manualFarmName) { _, newValue in
-            // If they start typing, make sure we’re in manual entry mode.
             if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 showManualEntry = true
                 selectedFarmID = nil
+                selectedTemplateID = nil
             }
         }
         .onChange(of: selectedFarmID) { _, _ in
-            // if they come back and change selection, allow auto-advance again
             if !showManualEntry {
                 didAutoAdvance = false
             }
         }
+    }
+
+    // =========================================================
+    // MARK: Main picker
+    // =========================================================
+
+    private var mainPickerContent: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                VStack(spacing: 6) {
+                    Text("Which Farm?")
+                        .font(.largeTitle.weight(.bold))
+                        .multilineTextAlignment(.center)
+
+                    Text(
+                        hasTemplates
+                        ? "Select a farm to build a new session, or choose a quick start template below."
+                        : "Select where today’s session belongs."
+                    )
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                }
+                .padding(.top, 8)
+                .padding(.horizontal, 20)
+
+                LazyVGrid(columns: gridColumns, spacing: 12) {
+                    ForEach(farmTilesData) { farm in
+                        farmTile(farm)
+                    }
+                }
+                .padding(.horizontal, 16)
+
+                if hasTemplates {
+                    orDivider
+                        .padding(.horizontal, 16)
+                        .padding(.top, 2)
+
+                    VStack(spacing: 6) {
+                        Text("Quick Start Templates")
+                            .font(.largeTitle.weight(.bold))
+                            .multilineTextAlignment(.center)
+
+                        Text("Tap a template to instantly start a session with saved settings.")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 20)
+
+                    LazyVGrid(columns: gridColumns, spacing: 12) {
+                        ForEach(templates) { template in
+                            templateTile(template)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.bottom, 16)
+        }
+    }
+
+    private var orDivider: some View {
+        HStack(spacing: 10) {
+            Capsule()
+                .fill(Color.white.opacity(0.14))
+                .frame(height: 1)
+
+            Text("OR")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                )
+
+            Capsule()
+                .fill(Color.white.opacity(0.14))
+                .frame(height: 1)
+        }
+    }
+
+    // =========================================================
+    // MARK: Farm / template tiles
+    // =========================================================
+
+    private func farmTile(_ farm: FarmTileData) -> some View {
+        let isSelected = selectedFarmID == farm.id && selectedTemplateID == nil
+
+        return Button {
+            handleFarmTap(farm.id)
+        } label: {
+            SessionSetupChoiceTile(
+                title: farm.title,
+                subtitle: farm.subtitle,
+                tertiary: nil,
+                systemImage: "leaf.fill",
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func templateTile(_ template: LocalDataStore.SessionQuickStartTemplate) -> some View {
+        let isSelected = selectedTemplateID == template.id
+
+        return Button {
+            handleTemplateTap(template)
+        } label: {
+            SessionSetupChoiceTile(
+                title: template.name,
+                subtitle: templateSubtitle(template),
+                tertiary: nil,
+                systemImage: "bolt.circle.fill",
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // =========================================================
@@ -132,7 +242,6 @@ struct SessionSetupFarmStepView: View {
             subtitle: hasFarmsConfigured ? "Enter a new farm name." : "No farms exist yet — enter one now."
         ) {
             VStack(alignment: .leading, spacing: 12) {
-
                 Text("You can manage farms later in Setup → Farms.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -143,10 +252,10 @@ struct SessionSetupFarmStepView: View {
 
                 if hasFarmsConfigured {
                     Button {
-                        // go back to tile selection
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showManualEntry = false
                             manualFarmName = ""
+                            selectedTemplateID = nil
                             didAutoAdvance = false
                         }
                     } label: {
@@ -159,64 +268,81 @@ struct SessionSetupFarmStepView: View {
     }
 
     // =========================================================
-    // MARK: Tiles + Binding
+    // MARK: Actions
     // =========================================================
 
-    private var farmTiles: [WizardTile] {
-        let farms = Array(store.farms.prefix(8))
+    private func handleFarmTap(_ farmID: UUID) {
+        guard !didAutoAdvance else { return }
+        didAutoAdvance = true
 
-        return farms.map { f in
-            WizardTile(
-                id: f.id.uuidString,
-                title: f.name,
-                systemImage: "leaf.fill",
-                subtitle: f.pic.isEmpty ? "No PIC saved" : "PIC \(f.pic)"
-            )
+        selectedTemplateID = nil
+        pendingAutoNextWork?.cancel()
+        pendingTemplateWork?.cancel()
+
+        withAnimation(.spring(response: selectionPulseDuration, dampingFraction: 1.0)) {
+            selectedFarmID = farmID
+            manualFarmName = ""
         }
+
+        let work = DispatchWorkItem {
+            onAutoNext()
+        }
+        pendingAutoNextWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + autoAdvanceDelay, execute: work)
     }
 
-    private var farmSelectionBinding: Binding<Set<String>> {
-        Binding<Set<String>>(
-            get: {
-                guard let id = selectedFarmID else { return [] }
-                return [id.uuidString]
-            },
-            set: { newSet in
-                guard let first = newSet.first else {
-                    selectedFarmID = nil
-                    return
-                }
+    private func handleTemplateTap(_ template: LocalDataStore.SessionQuickStartTemplate) {
+        guard pendingTemplateWork == nil else { return }
 
-                if first == "__add_farm__" {
-                    // Switch to manual entry
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        showManualEntry = true
-                        selectedFarmID = nil
-                        manualFarmName = ""
-                        didAutoAdvance = false
-                    }
-                    return
-                }
+        pendingAutoNextWork?.cancel()
+        pendingAutoNextWork = nil
+        didAutoAdvance = true
 
-                // Normal selection (no auto-advance here anymore; handled in onSelectionChanged)
-                if let uuid = UUID(uuidString: first) {
-                    selectedFarmID = uuid
-                    manualFarmName = ""
-                } else {
-                    selectedFarmID = nil
-                }
-            }
-        )
+        withAnimation(.spring(response: selectionPulseDuration, dampingFraction: 1.0)) {
+            selectedTemplateID = template.id
+            selectedFarmID = template.farmID
+            manualFarmName = ""
+        }
+
+        let work = DispatchWorkItem {
+            onTemplateSelected(template)
+            pendingTemplateWork = nil
+        }
+
+        pendingTemplateWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + autoAdvanceDelay, execute: work)
+    }
+
+    private func templateSubtitle(_ template: LocalDataStore.SessionQuickStartTemplate) -> String {
+        var parts: [String] = []
+
+        // Mob
+        if let mob = template.defaultMobName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !mob.isEmpty,
+           mob != SessionSetupMobStepView.noneSentinel {
+            parts.append(mob == SessionSetupMobStepView.mixedSentinel ? "Mixed" : mob)
+        }
+
+        // Session types
+        let types = template.sessionTypes
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " • ")
+
+        if !types.isEmpty {
+            parts.append(types)
+        }
+
+        return parts.joined(separator: " • ")
     }
 
     // =========================================================
-    // MARK: Small shared helper (local copy)
+    // MARK: Small shared helper
     // =========================================================
 
     private func stepCard(title: String, subtitle: String, @ViewBuilder content: () -> some View) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-
                 VStack(spacing: 6) {
                     Text(title)
                         .font(.headline)
@@ -234,5 +360,92 @@ struct SessionSetupFarmStepView: View {
                 content()
             }
         }
+    }
+}
+
+private struct FarmTileData: Identifiable {
+    let id: UUID
+    let title: String
+    let subtitle: String
+}
+
+private struct SessionSetupChoiceTile: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let subtitle: String
+    let tertiary: String?
+    let systemImage: String
+    let isSelected: Bool
+
+    private var fillColor: Color {
+        if isSelected {
+            return Color.blue.opacity(colorScheme == .dark ? 0.16 : 0.10)
+        }
+        return colorScheme == .dark
+            ? Color.white.opacity(0.08)
+            : Color.white.opacity(0.72)
+    }
+
+    private var strokeColor: Color {
+        if isSelected {
+            return Color.blue.opacity(0.85)
+        }
+        return colorScheme == .dark
+            ? Color.white.opacity(0.14)
+            : Color.black.opacity(0.08)
+    }
+
+    private var shadowColor: Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.16)
+            : Color.black.opacity(0.08)
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            if let tertiary, !tertiary.isEmpty {
+                Text(tertiary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 96)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(fillColor)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.thinMaterial)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(strokeColor, lineWidth: isSelected ? 1.5 : 1)
+        )
+        .shadow(color: shadowColor, radius: 10, x: 0, y: 4)
     }
 }

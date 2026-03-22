@@ -76,8 +76,16 @@ final class AudioManager: NSObject, ObservableObject {
     ) {
         guard settings.audioEnabled else { return }
 
-        let speechSetting = settings.speechSetting(for: trigger)
-        guard speechSetting.enabled else { return }
+        let effectiveSpeechSetting: SpeechTriggerSetting
+        if trigger == .animalClassAnnouncement,
+           let className = className?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !className.isEmpty {
+            effectiveSpeechSetting = settings.classSpeechSetting(for: className)
+        } else {
+            effectiveSpeechSetting = settings.speechSetting(for: trigger)
+        }
+
+        guard effectiveSpeechSetting.enabled else { return }
 
         let config = settings.resolvedConfig(
             for: trigger,
@@ -85,9 +93,15 @@ final class AudioManager: NSObject, ObservableObject {
             className: className
         )
 
+        let resolvedPhrase = settings.phraseToSpeak(
+            for: trigger,
+            mobName: mobName,
+            className: className
+        )
+
         switch config.mode {
         case .speech:
-            if let phrase = settings.phraseToSpeak(for: trigger),
+            if let phrase = resolvedPhrase,
                !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 enqueue(.speech(phrase))
             } else {
@@ -96,7 +110,7 @@ final class AudioManager: NSObject, ObservableObject {
 
         case .clip:
             guard let clip = settings.clip(for: config.clipID) else {
-                if let phrase = settings.phraseToSpeak(for: trigger),
+                if let phrase = resolvedPhrase,
                    !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     enqueue(.speech(phrase))
                 } else {

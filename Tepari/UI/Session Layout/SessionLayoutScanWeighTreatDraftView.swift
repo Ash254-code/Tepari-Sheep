@@ -625,7 +625,7 @@ struct SessionLayoutScanWeighTreatDraftView: View {
             rule.resolvedPosition(using: draftRuleEngine.gateMap) == position
         }
 
-        if let first = matchingRules.first {
+        if matchingRules.first != nil {
             let names = matchingRules
                 .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
@@ -741,6 +741,8 @@ private struct SessionLayoutScanWeighTreatDraftPanel<Content: View>: View {
 }
 
 private struct SessionCenteredWeightBoard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let weight: Double
     let locked: Bool
     let stable: Bool
@@ -758,6 +760,10 @@ private struct SessionCenteredWeightBoard: View {
 
     private var isHighlightMode: Bool {
         locked || stable
+    }
+
+    private var liveWeightColor: Color {
+        colorScheme == .light ? .black : .white
     }
 
     var body: some View {
@@ -827,13 +833,13 @@ private struct SessionCenteredWeightBoard: View {
                         Text(weightText)
                             .font(.system(size: digitSize, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(isHighlightMode ? highlightColor : .white)
+                            .foregroundStyle(isHighlightMode ? highlightColor : liveWeightColor)
                             .minimumScaleFactor(0.42)
                             .lineLimit(1)
 
                         Text(" kg")
                             .font(.system(size: unitSize, weight: .bold, design: .rounded))
-                            .foregroundStyle(isHighlightMode ? highlightColor : .white)
+                            .foregroundStyle(isHighlightMode ? highlightColor : liveWeightColor)
                             .minimumScaleFactor(0.7)
                             .padding(.top, digitSize * 0.10)
 

@@ -335,16 +335,16 @@ private extension AnimalDataView {
 // MARK: - List + Header + Filters
 
 private extension AnimalDataView {
-
+    
     func animalListView() -> some View {
         List {
-
+            
             Section {
                 headerCard
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
             }
-
+            
             if isSelecting {
                 Section {
                     bulkActionsCard
@@ -352,22 +352,22 @@ private extension AnimalDataView {
                         .listRowBackground(Color.clear)
                 }
             }
-
+            
             Section(resultsTitle) {
-
+                
                 if rankedAnimals.isEmpty {
                     Text(effectiveFilteredAnimals.isEmpty && !baseAnimals.isEmpty
                          ? "No animals match your filters."
                          : "No animals imported yet.")
-                        .foregroundStyle(.secondary)
+                    .foregroundStyle(.secondary)
                 }
-
+                
                 if effectiveFilteredAnimals.count > rankedAnimals.count {
                     Text("Showing first \(rankedAnimals.count) animals. Select All Filtered still applies to all \(effectiveFilteredAnimals.count) matching animals.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-
+                
                 ForEach(rankedAnimals) { animal in
                     if isSelecting {
                         Button {
@@ -407,14 +407,15 @@ private extension AnimalDataView {
         VStack(alignment: .leading, spacing: 14) {
 
             HStack(spacing: 14) {
+
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.blue.opacity(0.16))
                         .frame(width: 48, height: 48)
 
-                    Image(systemName: "sheep.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.blue)
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.orange)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -538,7 +539,6 @@ private extension AnimalDataView {
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
-
     var topControlsRow: some View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 8) {
@@ -1070,7 +1070,27 @@ private extension AnimalDataView {
         }
 
         let hex = mob.colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
-        return hex.isEmpty ? .primary : .white
+        guard !hex.isEmpty else { return .primary }
+
+        let cleaned = hex.replacingOccurrences(of: "#", with: "")
+        guard cleaned.count == 6 || cleaned.count == 8,
+              let value = UInt64(cleaned, radix: 16) else {
+            return .primary
+        }
+
+        let r, g, b: Double
+        if cleaned.count == 8 {
+            r = Double((value & 0x00FF0000) >> 16) / 255.0
+            g = Double((value & 0x0000FF00) >> 8) / 255.0
+            b = Double(value & 0x000000FF) / 255.0
+        } else {
+            r = Double((value & 0xFF0000) >> 16) / 255.0
+            g = Double((value & 0x00FF00) >> 8) / 255.0
+            b = Double(value & 0x0000FF) / 255.0
+        }
+
+        let luminance = (0.299 * r) + (0.587 * g) + (0.114 * b)
+        return luminance > 0.7 ? .black : .white
     }
 
     func colorFromHex(_ hex: String) -> Color? {

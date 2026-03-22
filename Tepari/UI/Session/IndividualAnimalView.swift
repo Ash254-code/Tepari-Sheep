@@ -10,6 +10,7 @@ struct IndividualAnimalView: View {
 
     // Editable fields
     @State private var sex: LocalDataStore.Sex? = nil
+    @State private var selectedMobID: UUID? = nil
     @State private var animalClass: LocalDataStore.AnimalClass? = nil
     @State private var animalStatus: AnimalStatus? = nil
     @State private var comments: String = ""
@@ -236,8 +237,16 @@ struct IndividualAnimalView: View {
         return "Live"
     }
 
+    private var availableMobsForAnimal: [LocalDataStore.Mob] {
+        guard let farmID = preferredFarmID else { return [] }
+        return store.mobs(for: farmID).sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
     private var currentMob: LocalDataStore.Mob? {
-        guard let mobID = profile?.mobID else { return nil }
+        let mobID = selectedMobID ?? profile?.mobID
+        guard let mobID else { return nil }
         return store.mobs.first(where: { $0.id == mobID })
     }
 
@@ -260,7 +269,8 @@ struct IndividualAnimalView: View {
     }
 
     private var eidPillText: Color {
-        currentMobColor == nil ? .primary : .white
+        guard let mobColor = currentMobColor else { return .primary }
+        return preferredTextColor(for: mobColor)
     }
 
     var body: some View {
@@ -545,11 +555,18 @@ struct IndividualAnimalView: View {
                         }
                     }
 
-                    glassValueField(
+                    glassMenuPicker(
                         title: "Mob",
                         value: currentMob?.name ?? "—",
                         icon: "person.3.fill"
-                    )
+                    ) {
+                        Picker("Mob", selection: bindingMobID()) {
+                            Text("—").tag(UUID?.none)
+                            ForEach(availableMobsForAnimal) { mob in
+                                Text(mob.name).tag(UUID?.some(mob.id))
+                            }
+                        }
+                    }
                 }
 
                 HStack(spacing: 10) {
@@ -1013,6 +1030,7 @@ struct IndividualAnimalView: View {
             lastLoadedEID = "—"
             resolvedFarmID = nil
             sex = nil
+            selectedMobID = nil
             animalClass = nil
             animalStatus = nil
             comments = ""
@@ -1038,6 +1056,7 @@ struct IndividualAnimalView: View {
 
         if let p = profile {
             sex = p.sex
+            selectedMobID = p.mobID
             animalClass = p.animalClass
             animalStatus = p.status
             comments = p.comments ?? ""
@@ -1045,6 +1064,7 @@ struct IndividualAnimalView: View {
             user2 = p.userField2 ?? ""
         } else {
             sex = nil
+            selectedMobID = nil
             animalClass = nil
             animalStatus = nil
             comments = ""
@@ -1071,6 +1091,7 @@ struct IndividualAnimalView: View {
 
         var updated = base
         updated.sex = sex
+        updated.mobID = selectedMobID
         updated.animalClass = animalClass
         updated.status = animalStatus
         updated.comments = comments.trimmedOrNil
@@ -1107,6 +1128,26 @@ struct IndividualAnimalView: View {
         return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
 
+    private func preferredTextColor(for color: Color) -> Color {
+        #if canImport(UIKit)
+        let uiColor = UIColor(color)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return .white
+        }
+
+        let luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+        return luminance > 0.7 ? .black : .white
+        #else
+        return .white
+        #endif
+    }
+
     private func parseDouble(_ text: String?) -> Double? {
         guard let text else { return nil }
         let cleaned = text
@@ -1139,6 +1180,10 @@ struct IndividualAnimalView: View {
 
     private func bindingSex() -> Binding<LocalDataStore.Sex?> {
         Binding(get: { sex }, set: { sex = $0 })
+    }
+
+    private func bindingMobID() -> Binding<UUID?> {
+        Binding(get: { selectedMobID }, set: { selectedMobID = $0 })
     }
 
     private func bindingClass() -> Binding<LocalDataStore.AnimalClass?> {

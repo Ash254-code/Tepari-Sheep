@@ -48,17 +48,6 @@ final class DrafterController: ObservableObject {
         executeMovement(to: position, isManualTest: false)
     }
 
-    func manualTest(position: DraftPosition) {
-        executeMovement(to: position, isManualTest: true)
-    }
-
-    /// Call this when all required jobs for the current animal are complete.
-    func releaseIfJobsComplete() {
-        guard settings.autoReleaseMode == .whenJobsComplete else { return }
-        releaseHeldAnimal()
-    }
-
-    /// Force release regardless of release mode.
     func releaseNow() {
         releaseHeldAnimal()
     }
@@ -137,23 +126,9 @@ final class DrafterController: ObservableObject {
             currentPosition = target
             isHoldingAnimal = target != .straight
 
-            if isManualTest {
-                try await sleep(settings.manualTestHoldSeconds)
-                try await runManualTestReturnInline()
-            } else {
-                switch settings.autoReleaseMode {
-                case .off:
-                    // Stay drafted until next draft command or explicit release.
-                    break
-
-                case .timed:
-                    try await sleep(settings.gateHoldSeconds)
-                    try await runReleaseSequenceInline()
-
-                case .whenJobsComplete:
-                    // Hold until session logic explicitly calls release.
-                    break
-                }
+            if settings.isAutoReleaseOn {
+                try await sleep(settings.gateHoldSeconds)
+                try await runReleaseSequenceInline()
             }
 
         } catch {
@@ -187,14 +162,6 @@ final class DrafterController: ObservableObject {
         }
 
         DraftWifiController.pulseRelease()
-        isHoldingAnimal = false
-    }
-
-    /// Manual gate test behaviour:
-    /// return the draft gate to centre/home after the hold.
-    private func runManualTestReturnInline() async throws {
-        try await performReturnToHome()
-        currentPosition = .straight
         isHoldingAnimal = false
     }
 

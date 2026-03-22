@@ -37,7 +37,7 @@ enum SetupWizardStep: String, CaseIterable, Hashable {
 // MARK: - Session Types
 // ---------------------------------------------------------
 
-enum SetupSessionType: String, CaseIterable, Identifiable, Hashable {
+enum SetupSessionType: String, CaseIterable, Codable, Hashable, Identifiable {
     case scan = "Scan"
     case weigh = "Weigh"
     case fleeceWeigh = "Fleece Weigh"

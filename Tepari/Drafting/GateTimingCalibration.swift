@@ -9,10 +9,10 @@ struct GateTimingCalibrationView: View {
         List {
 
             // =====================================================
-            // MARK: Timed Auto Release
+            // MARK: Auto Release
             // =====================================================
 
-            Section("Timed Auto Release") {
+            Section("Auto Release") {
                 Picker("Release Mode", selection: $draftSettings.autoReleaseMode) {
                     ForEach(DraftSettings.AutoReleaseMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -25,7 +25,7 @@ struct GateTimingCalibrationView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
-                    Text("Timed mode uses Trigger Delay, Move Duration, Hold Duration and Return Duration from this screen. Jobs Complete mode holds the animal until session logic explicitly releases it.")
+                    Text("Auto Release On uses Trigger Delay, Move Duration, Hold Duration and Return Duration from this screen. Auto Release Off keeps the animal held until released by another control action.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -70,7 +70,7 @@ struct GateTimingCalibrationView: View {
                     unit: "s"
                 )
 
-                Text("Hold Duration is the key timing used by Timed auto-release. Off mode will keep holding until manually or explicitly released. Jobs Complete mode ignores timed release and waits for the session workflow.")
+                Text("Hold Duration is the timing used when Auto Release is On. With Auto Release Off, the animal stays held until explicitly released.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -112,54 +112,33 @@ struct GateTimingCalibrationView: View {
             }
 
             // =====================================================
-            // MARK: Manual Testing
+            // MARK: Draft Controls
             // =====================================================
 
-            Section("Manual Test") {
+            Section("Draft Controls") {
 
                 sliderRow(
-                    title: "Manual Hold Time",
-                    value: $draftSettings.manualTestHoldSeconds,
+                    title: "Gate Hold Time",
+                    value: $draftSettings.gateHoldSeconds,
                     range: 0.1...20,
                     step: 0.1,
                     unit: "s"
                 )
 
-                Text("Manual tests always pulse the selected gate then return, regardless of the selected release mode.")
+                Text("Use these controls to release the current animal or return the gate to home during calibration.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(spacing: 10) {
 
-                    HStack(spacing: 10) {
-
-                        Button("Left") {
-                            drafter.manualTest(position: .left)
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Centre") {
-                            drafter.manualTest(position: .straight)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    HStack(spacing: 10) {
-
-                        Button("Right") {
-                            drafter.manualTest(position: .right)
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Far Right") {
-                            drafter.manualTest(position: .farRight)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
                     Button("Release Now") {
                         drafter.releaseNow()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Move To Home") {
+                        drafter.moveToHome()
                     }
                     .buttonStyle(.bordered)
                 }

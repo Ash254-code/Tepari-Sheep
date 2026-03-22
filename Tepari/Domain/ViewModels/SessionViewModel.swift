@@ -976,6 +976,11 @@ final class SessionViewModel: ObservableObject {
                 loadTraitDraftFromLatestRecordIfExists()
             }
 
+            let scannedClassName: String? = {
+                guard let farmID else { return nil }
+                return resolvedAnimalClassNameForScan(eid: eidClean, farmID: farmID)
+            }()
+
             if let farmID {
                 applyAnimalDefaults(eid: eidClean, farmID: farmID)
             }
@@ -995,6 +1000,13 @@ final class SessionViewModel: ObservableObject {
                 AudioManager.shared.playTrigger(.newAnimal, settings: settings)
             }
 
+            if let scannedClassName {
+                AudioManager.shared.playTrigger(
+                    .animalClassAnnouncement,
+                    settings: settings,
+                    className: scannedClassName
+                )
+            }
             if wasDuplicateInSession {
                 pendingDuplicateEID = eidClean
                 showDuplicatePrompt = true
@@ -1238,6 +1250,24 @@ final class SessionViewModel: ObservableObject {
     // =====================================================
     // MARK: - APPLY DEFAULTS
     // =====================================================
+
+    private func resolvedAnimalClassNameForScan(eid: String, farmID: UUID) -> String? {
+        let resolvedClass = store.resolvedClassForScan(
+            sessionID: activeSession.id,
+            farmID: farmID,
+            eidRaw: eid
+        )
+
+        let raw = String(describing: resolvedClass).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        let lowered = raw.lowercased()
+        if lowered == "none" || lowered == "unknown" || lowered == "nil" {
+            return nil
+        }
+
+        return raw
+    }
 
     private func applyAnimalDefaults(eid: String, farmID: UUID) {
         let resolvedSex = store.resolvedSexForScan(
@@ -1512,8 +1542,7 @@ final class SessionViewModel: ObservableObject {
     // =====================================================
 
     private func attemptAutoReleaseIfReady() {
-        guard draftSettings.autoReleaseMode == .whenJobsComplete else { return }
-        guard !currentAnimalReleased else { return }
+        guard draftSettings.isAutoReleaseOn else { return }
         guard currentEID != "—", !currentEID.isEmpty else { return }
         guard currentAnimalDraftCompleted else { return }
 
@@ -1530,7 +1559,7 @@ final class SessionViewModel: ObservableObject {
         }
 
         currentAnimalReleased = true
-        drafterController?.releaseIfJobsComplete()
+        drafterController?.releaseNow()
     }
 
     // =====================================================

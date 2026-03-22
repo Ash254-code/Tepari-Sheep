@@ -10,8 +10,7 @@ final class DraftSettings: ObservableObject {
 
     enum AutoReleaseMode: String, Codable, CaseIterable, Identifiable {
         case off
-        case timed
-        case whenJobsComplete
+        case on
 
         var id: String { rawValue }
 
@@ -19,10 +18,17 @@ final class DraftSettings: ObservableObject {
             switch self {
             case .off:
                 return "Off"
-            case .timed:
-                return "Timed"
-            case .whenJobsComplete:
-                return "Jobs Complete"
+            case .on:
+                return "On"
+            }
+        }
+
+        init(legacyRawValue: String) {
+            switch legacyRawValue {
+            case "timed", "whenJobsComplete", "on":
+                self = .on
+            default:
+                self = .off
             }
         }
     }
@@ -41,8 +47,8 @@ final class DraftSettings: ObservableObject {
         didSet { gateMoveDurationSeconds = clamp(gateMoveDurationSeconds, 0.1, 5.0) }
     }
 
-    /// Used only when autoReleaseMode == .timed
-    /// How long the gate stays in drafted position before release.
+    /// How long the gate stays in drafted position before release
+    /// when auto release is enabled.
     @Published var gateHoldSeconds: Double = 0.0 {
         didSet { gateHoldSeconds = clamp(gateHoldSeconds, 0.0, 10.0) }
     }
@@ -59,17 +65,12 @@ final class DraftSettings: ObservableObject {
     // =====================================================
 
     /// Master control for release behaviour.
-    /// - off: animal stays held until another command or manual release
-    /// - timed: release automatically after `gateHoldSeconds`
-    /// - whenJobsComplete: release only after required session jobs are done
-    @Published var autoReleaseMode: AutoReleaseMode = .timed
+    /// - off: animal stays held until another command or explicit release
+    /// - on: release automatically after `gateHoldSeconds`
+    @Published var autoReleaseMode: AutoReleaseMode = .on
 
-    var isTimedAutoRelease: Bool {
-        autoReleaseMode == .timed
-    }
-
-    var isJobsCompleteAutoRelease: Bool {
-        autoReleaseMode == .whenJobsComplete
+    var isAutoReleaseOn: Bool {
+        autoReleaseMode == .on
     }
 
     /// Kept for compatibility, but real animal release now uses the release relay.
@@ -88,16 +89,6 @@ final class DraftSettings: ObservableObject {
     // =====================================================
 
     @Published var startInHomePosition: Bool = true
-
-    // =====================================================
-    // MARK: - Manual test timing
-    // =====================================================
-
-    /// Extra hold time when using manual test buttons.
-    /// Manual tests should pulse and return regardless of auto release mode.
-    @Published var manualTestHoldSeconds: Double = 2.0 {
-        didSet { manualTestHoldSeconds = clamp(manualTestHoldSeconds, 0.1, 20.0) }
-    }
 
     // =====================================================
     // MARK: - Safety

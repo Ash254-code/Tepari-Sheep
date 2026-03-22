@@ -3,6 +3,118 @@ import Foundation
 import Combine
 import SwiftUI
 
+struct LocalDataStoreSnapshot: Codable {
+    var schemaVersion: Int
+
+    // Core
+    var sessions: [Session]
+    var records: [AnimalRecord]
+
+    // Wizard/session config + runtime state
+    var sessionConfigs: [UUID: LocalDataStore.SessionConfig]
+    var sessionTreatments: [UUID: [SessionTreatment]]
+    var sessionQuickStartTemplates: [LocalDataStore.SessionQuickStartTemplate]?
+
+    // Per-session selections / defaults / overwrites
+    var sessionFarmID: [UUID: UUID]
+    var sessionMobID: [UUID: UUID]
+
+    var sessionDefaultSex: [UUID: LocalDataStore.Sex]
+    var sessionDefaultClass: [UUID: LocalDataStore.AnimalClass]
+    var sessionDefaultMobName: [UUID: String]
+
+    // ✅ NEW defaults (optional so older files decode safely)
+    var sessionDefaultBreed: [UUID: String]?
+    var sessionDefaultBirthYear: [UUID: Int]?
+    var sessionDefaultBirthMonth: [UUID: Int]?
+    var sessionDefaultStatus: [UUID: AnimalStatus]?
+
+    var sessionOverwriteSex: [UUID: Bool]
+    var sessionOverwriteClass: [UUID: Bool]
+    var sessionOverwriteMob: [UUID: Bool]
+
+    // Catalog
+    var farms: [LocalDataStore.Farm]
+    var mobs: [LocalDataStore.Mob]
+    var animals: [LocalDataStore.AnimalProfile]
+
+    // Lifetime animal history (v1 files may not include this, so keep optional)
+    var animalEvents: [AnimalEvent]? = nil
+
+    // Programmed tags + sold archive
+    var programmedTags: [UUID: [String: LocalDataStore.ProgrammedTagAssignment]]
+    var soldArchive: [LocalDataStore.SoldAnimal]
+
+    // Per-session draft setup
+    var sessionDraftSetup: [UUID: SessionDraftSetup]?
+
+    init(
+        schemaVersion: Int = 1,
+        sessions: [Session] = [],
+        records: [AnimalRecord] = [],
+        sessionConfigs: [UUID: LocalDataStore.SessionConfig] = [:],
+        sessionTreatments: [UUID: [SessionTreatment]] = [:],
+        sessionQuickStartTemplates: [LocalDataStore.SessionQuickStartTemplate]? = nil,
+        sessionFarmID: [UUID: UUID] = [:],
+        sessionMobID: [UUID: UUID] = [:],
+        sessionDefaultSex: [UUID: LocalDataStore.Sex] = [:],
+        sessionDefaultClass: [UUID: LocalDataStore.AnimalClass] = [:],
+        sessionDefaultMobName: [UUID: String] = [:],
+
+        // ✅ NEW defaults
+        sessionDefaultBreed: [UUID: String]? = nil,
+        sessionDefaultBirthYear: [UUID: Int]? = nil,
+        sessionDefaultBirthMonth: [UUID: Int]? = nil,
+        sessionDefaultStatus: [UUID: AnimalStatus]? = nil,
+
+        sessionOverwriteSex: [UUID: Bool] = [:],
+        sessionOverwriteClass: [UUID: Bool] = [:],
+        sessionOverwriteMob: [UUID: Bool] = [:],
+        farms: [LocalDataStore.Farm] = [],
+        mobs: [LocalDataStore.Mob] = [],
+        animals: [LocalDataStore.AnimalProfile] = [],
+        animalEvents: [AnimalEvent]? = nil,
+        programmedTags: [UUID: [String: LocalDataStore.ProgrammedTagAssignment]] = [:],
+        soldArchive: [LocalDataStore.SoldAnimal] = [],
+        sessionDraftSetup: [UUID: SessionDraftSetup]? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sessions = sessions
+        self.records = records
+
+        self.sessionConfigs = sessionConfigs
+        self.sessionTreatments = sessionTreatments
+        self.sessionQuickStartTemplates = sessionQuickStartTemplates
+
+        self.sessionFarmID = sessionFarmID
+        self.sessionMobID = sessionMobID
+
+        self.sessionDefaultSex = sessionDefaultSex
+        self.sessionDefaultClass = sessionDefaultClass
+        self.sessionDefaultMobName = sessionDefaultMobName
+
+        // ✅ NEW defaults
+        self.sessionDefaultBreed = sessionDefaultBreed
+        self.sessionDefaultBirthYear = sessionDefaultBirthYear
+        self.sessionDefaultBirthMonth = sessionDefaultBirthMonth
+        self.sessionDefaultStatus = sessionDefaultStatus
+
+        self.sessionOverwriteSex = sessionOverwriteSex
+        self.sessionOverwriteClass = sessionOverwriteClass
+        self.sessionOverwriteMob = sessionOverwriteMob
+
+        self.farms = farms
+        self.mobs = mobs
+        self.animals = animals
+
+        self.animalEvents = animalEvents
+
+        self.programmedTags = programmedTags
+        self.soldArchive = soldArchive
+        self.sessionDraftSetup = sessionDraftSetup
+    }
+}
+
 @MainActor
 final class LocalDataStore: ObservableObject {
 
@@ -76,19 +188,28 @@ final class LocalDataStore: ObservableObject {
     @discardableResult
     func importAnimalsCSV(
         csvText: String,
-        duplicateAction: DuplicateImportAction = .skip
+        duplicateAction: DuplicateImportAction = .skip,
+        progress: ((Int, Int) -> Void)? = nil
     ) -> AnimalCSVImportResult {
 
         let parsed = CSVAnimalImporter.parseAnimalsCSV(csvText: csvText)
+        let total = parsed.rows.count
 
         var imported = 0
         var skipped = parsed.skippedRows
         var duplicatesSkipped = 0
         var replaced = 0
 
-        for row in parsed.rows {
+        for (index, row) in parsed.rows.enumerated() {
 
-            guard let farmID = resolveFarmIDForImport(pic: row.farmPIC, farmName: row.farmName) else {
+            if index % 20 == 0 || index == total - 1 {
+                progress?(index + 1, total)
+            }
+
+            guard let farmID = resolveFarmIDForImport(
+                pic: row.farmPIC,
+                farmName: row.farmName
+            ) else {
                 skipped += 1
                 continue
             }
@@ -113,8 +234,7 @@ final class LocalDataStore: ObservableObject {
                     return existingMob.id
                 }
 
-                let created = addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex)
-                return created.id
+                return addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex).id
             }()
 
             let profile = AnimalProfile(
@@ -154,137 +274,23 @@ final class LocalDataStore: ObservableObject {
         rebuildIndexes()
         scheduleSave()
 
+        progress?(total, total)
+
         return AnimalCSVImportResult(
-            totalAnimals: parsed.rows.count,
+            totalAnimals: total,
             animalsImported: imported,
             animalsSkipped: skipped,
             duplicatesSkipped: duplicatesSkipped,
             animalsReplaced: replaced
         )
     }
-     
-
-    // =========================================================
-    // MARK: - EXISTING CODE (UNCHANGED BELOW)
-    // =========================================================
-
-    // 👉 EVERYTHING ELSE IN YOUR FILE REMAINS EXACTLY THE SAME
-    // (no changes needed to events, UI, persistence, etc.)
-
-    // KEEP ALL YOUR ORIGINAL CODE BELOW THIS LINE
+    
 
     // =========================================================
     // MARK: - Persistence (core data snapshot)
     // =========================================================
 
-    private struct Snapshot: Codable {
-        var schemaVersion: Int
-
-        // Core
-        var sessions: [Session]
-        var records: [AnimalRecord]
-
-        // Wizard/session config + runtime state
-        var sessionConfigs: [UUID: SessionConfig]
-        var sessionTreatments: [UUID: [SessionTreatment]]
-
-        // Per-session selections / defaults / overwrites
-        var sessionFarmID: [UUID: UUID]
-        var sessionMobID: [UUID: UUID]
-
-        var sessionDefaultSex: [UUID: Sex]
-        var sessionDefaultClass: [UUID: AnimalClass]
-        var sessionDefaultMobName: [UUID: String]
-
-        // ✅ NEW defaults (optional so older files decode safely)
-        var sessionDefaultBreed: [UUID: String]?
-        var sessionDefaultBirthYear: [UUID: Int]?
-        var sessionDefaultBirthMonth: [UUID: Int]?
-        var sessionDefaultStatus: [UUID: AnimalStatus]?
-
-        var sessionOverwriteSex: [UUID: Bool]
-        var sessionOverwriteClass: [UUID: Bool]
-        var sessionOverwriteMob: [UUID: Bool]
-
-        // Catalog
-        var farms: [Farm]
-        var mobs: [Mob]
-        var animals: [AnimalProfile]
-
-        // Lifetime animal history (v1 files may not include this, so keep optional)
-        var animalEvents: [AnimalEvent]? = nil
-
-        // Programmed tags + sold archive
-        var programmedTags: [UUID: [String: ProgrammedTagAssignment]]
-        var soldArchive: [SoldAnimal]
-
-        // Per-session draft setup
-        var sessionDraftSetup: [UUID: SessionDraftSetup]?
-
-        init(
-            schemaVersion: Int = 1,
-            sessions: [Session] = [],
-            records: [AnimalRecord] = [],
-            sessionConfigs: [UUID: SessionConfig] = [:],
-            sessionTreatments: [UUID: [SessionTreatment]] = [:],
-            sessionFarmID: [UUID: UUID] = [:],
-            sessionMobID: [UUID: UUID] = [:],
-            sessionDefaultSex: [UUID: Sex] = [:],
-            sessionDefaultClass: [UUID: AnimalClass] = [:],
-            sessionDefaultMobName: [UUID: String] = [:],
-
-            // ✅ NEW defaults
-            sessionDefaultBreed: [UUID: String]? = nil,
-            sessionDefaultBirthYear: [UUID: Int]? = nil,
-            sessionDefaultBirthMonth: [UUID: Int]? = nil,
-            sessionDefaultStatus: [UUID: AnimalStatus]? = nil,
-
-            sessionOverwriteSex: [UUID: Bool] = [:],
-            sessionOverwriteClass: [UUID: Bool] = [:],
-            sessionOverwriteMob: [UUID: Bool] = [:],
-            farms: [Farm] = [],
-            mobs: [Mob] = [],
-            animals: [AnimalProfile] = [],
-            animalEvents: [AnimalEvent]? = nil,
-            programmedTags: [UUID: [String: ProgrammedTagAssignment]] = [:],
-            soldArchive: [SoldAnimal] = [],
-            sessionDraftSetup: [UUID: SessionDraftSetup]? = nil
-        ) {
-            self.schemaVersion = schemaVersion
-            self.sessions = sessions
-            self.records = records
-
-            self.sessionConfigs = sessionConfigs
-            self.sessionTreatments = sessionTreatments
-
-            self.sessionFarmID = sessionFarmID
-            self.sessionMobID = sessionMobID
-
-            self.sessionDefaultSex = sessionDefaultSex
-            self.sessionDefaultClass = sessionDefaultClass
-            self.sessionDefaultMobName = sessionDefaultMobName
-
-            // ✅ NEW defaults
-            self.sessionDefaultBreed = sessionDefaultBreed
-            self.sessionDefaultBirthYear = sessionDefaultBirthYear
-            self.sessionDefaultBirthMonth = sessionDefaultBirthMonth
-            self.sessionDefaultStatus = sessionDefaultStatus
-
-            self.sessionOverwriteSex = sessionOverwriteSex
-            self.sessionOverwriteClass = sessionOverwriteClass
-            self.sessionOverwriteMob = sessionOverwriteMob
-
-            self.farms = farms
-            self.mobs = mobs
-            self.animals = animals
-
-            self.animalEvents = animalEvents
-
-            self.programmedTags = programmedTags
-            self.soldArchive = soldArchive
-            self.sessionDraftSetup = sessionDraftSetup
-        }
-    }
+    // Removed private nested Snapshot struct as per instructions.
 
     // ✅ Keep the schema version the same; we used OPTIONAL new keys for backwards-compat.
     private let snapshotSchemaVersion = 1
@@ -318,7 +324,7 @@ final class LocalDataStore: ObservableObject {
             return
         }
 
-        saveTask = Task.detached(priority: .utility) {
+        saveTask = Task(priority: .utility) {
             do {
                 try await Task.sleep(nanoseconds: 1_000_000_000) // 1.0s debounce
 
@@ -368,13 +374,14 @@ final class LocalDataStore: ObservableObject {
         try appSupportDirectory().appendingPathComponent("animalEvents_v1.json")
     }
 
-    private func buildSnapshot() -> Snapshot {
-        Snapshot(
+    private func buildSnapshot() -> LocalDataStoreSnapshot {
+        LocalDataStoreSnapshot(
             schemaVersion: snapshotSchemaVersion,
             sessions: sessions,
             records: records,
             sessionConfigs: sessionConfigs,
             sessionTreatments: sessionTreatments,
+            sessionQuickStartTemplates: sessionQuickStartTemplates,
             sessionFarmID: sessionFarmID,
             sessionMobID: sessionMobID,
             sessionDefaultSex: sessionDefaultSex,
@@ -399,7 +406,8 @@ final class LocalDataStore: ObservableObject {
             sessionDraftSetup: sessionDraftSetup
         )
     }
-    private func applySnapshot(_ snap: Snapshot) {
+
+    private func applySnapshot(_ snap: LocalDataStoreSnapshot) {
         guard snap.schemaVersion == snapshotSchemaVersion else { return }
 
         sessions = snap.sessions
@@ -407,6 +415,7 @@ final class LocalDataStore: ObservableObject {
 
         sessionConfigs = snap.sessionConfigs
         sessionTreatments = snap.sessionTreatments
+        sessionQuickStartTemplates = snap.sessionQuickStartTemplates ?? []
 
         sessionFarmID = snap.sessionFarmID
         sessionMobID = snap.sessionMobID
@@ -449,7 +458,7 @@ final class LocalDataStore: ObservableObject {
             let dec = JSONDecoder()
             dec.dateDecodingStrategy = .iso8601
 
-            let snap = try dec.decode(Snapshot.self, from: data)
+            let snap = try dec.decode(LocalDataStoreSnapshot.self, from: data)
             applySnapshot(snap)
         } catch {
             do {
@@ -1037,7 +1046,156 @@ final class LocalDataStore: ObservableObject {
         let year = Calendar.current.component(.year, from: Date())
         return lambCountForYear(farmID: farmID, eidRaw: eidRaw, year: year)
     }
+    // =========================================================
+    // MARK: - Quick Start Templates
+    // =========================================================
 
+    struct SessionQuickStartTemplate: Identifiable, Codable, Hashable {
+        struct TreatmentSelection: Codable, Hashable {
+            var treatmentID: UUID
+            var doseOverride: DoseValue?
+        }
+
+        let id: UUID
+        var name: String
+        var farmID: UUID
+        var yardName: String?
+
+        var sessionTypes: [SetupSessionType]
+
+        var scannerType: ScannerType?
+        var weightSource: WeightSource?
+        var scanningEnabled: Bool
+        var weighingEnabled: Bool
+
+        var recordTreatments: Bool
+        var recordLambsProduced: Bool
+        var recordFleeceWeight: Bool
+        var recordStapleLength: Bool
+        var recordMicron: Bool
+        var recordCustom1: Bool
+        var recordCustom2: Bool
+
+        var defaultSex: Sex
+        var defaultClass: AnimalClass
+        var defaultBreed: String?
+        var defaultBirthYear: Int?
+        var defaultBirthMonth: Int?
+        var defaultStatus: AnimalStatus?
+        var defaultMobName: String?
+
+        var overwriteSex: Bool
+        var overwriteBreed: Bool
+        var overwriteMob: Bool
+        var overwriteClass: Bool
+        var overwriteBirthYear: Bool
+        var overwriteBirthMonth: Bool
+        var overwriteStatus: Bool
+
+        var tepariGunEnabled: Bool
+        var tepariTreatmentID: UUID?
+
+        var treatmentSelections: [TreatmentSelection]
+
+        init(
+            id: UUID = UUID(),
+            name: String,
+            farmID: UUID,
+            yardName: String? = nil,
+            sessionTypes: [SetupSessionType] = [],
+            scannerType: ScannerType? = nil,
+            weightSource: WeightSource? = nil,
+            scanningEnabled: Bool = false,
+            weighingEnabled: Bool = false,
+            recordTreatments: Bool = false,
+            recordLambsProduced: Bool = false,
+            recordFleeceWeight: Bool = false,
+            recordStapleLength: Bool = false,
+            recordMicron: Bool = false,
+            recordCustom1: Bool = false,
+            recordCustom2: Bool = false,
+            defaultSex: Sex = .ewe,
+            defaultClass: AnimalClass = .flock,
+            defaultBreed: String? = nil,
+            defaultBirthYear: Int? = nil,
+            defaultBirthMonth: Int? = nil,
+            defaultStatus: AnimalStatus? = nil,
+            defaultMobName: String? = nil,
+            overwriteSex: Bool = false,
+            overwriteBreed: Bool = false,
+            overwriteMob: Bool = false,
+            overwriteClass: Bool = false,
+            overwriteBirthYear: Bool = false,
+            overwriteBirthMonth: Bool = false,
+            overwriteStatus: Bool = false,
+            tepariGunEnabled: Bool = false,
+            tepariTreatmentID: UUID? = nil,
+            treatmentSelections: [TreatmentSelection] = []
+        ) {
+            self.id = id
+            self.name = name
+            self.farmID = farmID
+            self.yardName = yardName
+            self.sessionTypes = sessionTypes
+            self.scannerType = scannerType
+            self.weightSource = weightSource
+            self.scanningEnabled = scanningEnabled
+            self.weighingEnabled = weighingEnabled
+            self.recordTreatments = recordTreatments
+            self.recordLambsProduced = recordLambsProduced
+            self.recordFleeceWeight = recordFleeceWeight
+            self.recordStapleLength = recordStapleLength
+            self.recordMicron = recordMicron
+            self.recordCustom1 = recordCustom1
+            self.recordCustom2 = recordCustom2
+            self.defaultSex = defaultSex
+            self.defaultClass = defaultClass
+            self.defaultBreed = defaultBreed
+            self.defaultBirthYear = defaultBirthYear
+            self.defaultBirthMonth = defaultBirthMonth
+            self.defaultStatus = defaultStatus
+            self.defaultMobName = defaultMobName
+            self.overwriteSex = overwriteSex
+            self.overwriteBreed = overwriteBreed
+            self.overwriteMob = overwriteMob
+            self.overwriteClass = overwriteClass
+            self.overwriteBirthYear = overwriteBirthYear
+            self.overwriteBirthMonth = overwriteBirthMonth
+            self.overwriteStatus = overwriteStatus
+            self.tepariGunEnabled = tepariGunEnabled
+            self.tepariTreatmentID = tepariTreatmentID
+            self.treatmentSelections = treatmentSelections
+        }
+    }
+
+    @Published var sessionQuickStartTemplates: [SessionQuickStartTemplate] = []
+
+    func saveSessionQuickStartTemplate(_ template: SessionQuickStartTemplate) {
+        let trimmedName = template.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        var clean = template
+        clean.name = trimmedName
+
+        if let idx = sessionQuickStartTemplates.firstIndex(where: {
+            $0.id == clean.id || $0.name.caseInsensitiveCompare(clean.name) == .orderedSame
+        }) {
+            sessionQuickStartTemplates[idx] = clean
+        } else {
+            sessionQuickStartTemplates.insert(clean, at: 0)
+        }
+
+        sessionQuickStartTemplates.sort {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+
+        scheduleSave()
+    }
+
+    func deleteSessionQuickStartTemplate(id: UUID) {
+        sessionQuickStartTemplates.removeAll { $0.id == id }
+        scheduleSave()
+    }
     // =========================================================
     // MARK: - Equipment (Wizard + runtime)
     // =========================================================
@@ -3578,3 +3736,4 @@ fileprivate extension Array {
         return self[index]
     }
 }
+

@@ -25,7 +25,7 @@ final class WatchDraftReceiver: NSObject, ObservableObject, WCSessionDelegate {
             case "draft":
                 guard let raw = message["position"] as? Int,
                       let pos = DraftPosition(rawValue: raw) else { return }
-                drafter.manualTest(position: pos)
+                drafter.draftAnimal(to: pos)
 
             case "catch":
                 break

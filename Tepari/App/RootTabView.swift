@@ -71,11 +71,49 @@ struct RootTabView: View {
         _sessionVM = StateObject(wrappedValue: vm)
     }
 
-    private var draftState: ConnectionState { racewell.state }
-    private var stickState: ConnectionState { stickReader.state }
+    private var draftState: ConnectionState {
+        if DraftWifiController.hasDiscoveredDrafter() {
+            return .connected
+        } else {
+            return .connecting
+        }
+    }
+
+    private var stickState: ConnectionState {
+        stickReader.state == .disconnected ? .connecting : stickReader.state
+    }
+
+    private var xrp2iState: ConnectionState {
+        switch xrp2i.state {
+        case .idle:
+            return .disconnected
+        case .scanning, .connecting:
+            return .connecting
+        case .connected, .ready:
+            return .connected
+        case .error(let message):
+            return .error(message)
+        }
+    }
+
+    private var gunState: ConnectionState {
+        switch gunListener.state {
+        case .error:
+            return .error("Gun listener error")
+        case .starting:
+            return .connecting
+        case .listening:
+            return gunListener.lastPeer == "—" ? .connecting : .connected
+        case .stopped:
+            return .connecting
+        }
+    }
 
     private var handlerState: ConnectionState {
-        transport.method == .demo ? .connected : transport.state
+        if transport.method == .demo {
+            return .connected
+        }
+        return transport.state == .disconnected ? .connecting : transport.state
     }
 
     private func resetMoreStack(isPhone: Bool) {
@@ -174,6 +212,8 @@ struct RootTabView: View {
                             handlerState: handlerState,
                             draftState: draftState,
                             stickState: stickState,
+                            xrp2iState: xrp2iState,
+                            gunState: gunState,
                             activeTypes: sessionCoordinator.activeSessionTypes,
                             onTapHome: { goHome() }
                         )
@@ -190,6 +230,8 @@ struct RootTabView: View {
                                 handlerState: handlerState,
                                 draftState: draftState,
                                 stickState: stickState,
+                                xrp2iState: xrp2iState,
+                                gunState: gunState,
                                 onTapHome: { goHome() }
                             )
                     }
@@ -205,6 +247,8 @@ struct RootTabView: View {
                                 handlerState: handlerState,
                                 draftState: draftState,
                                 stickState: stickState,
+                                xrp2iState: xrp2iState,
+                                gunState: gunState,
                                 onTapHome: { goHome() }
                             )
                     }
@@ -220,6 +264,8 @@ struct RootTabView: View {
                                 handlerState: handlerState,
                                 draftState: draftState,
                                 stickState: stickState,
+                                xrp2iState: xrp2iState,
+                                gunState: gunState,
                                 onTapHome: { goHome() }
                             )
                     }
@@ -235,6 +281,8 @@ struct RootTabView: View {
                                 handlerState: handlerState,
                                 draftState: draftState,
                                 stickState: stickState,
+                                xrp2iState: xrp2iState,
+                                gunState: gunState,
                                 onTapHome: { goHome() }
                             )
                     }
@@ -249,6 +297,8 @@ struct RootTabView: View {
                         handlerState: handlerState,
                         draftState: draftState,
                         stickState: stickState,
+                        xrp2iState: xrp2iState,
+                        gunState: gunState,
                         onTapHome: { goHome() }
                     )
                     .tabItem {
@@ -389,6 +439,8 @@ struct RootTabView: View {
                     handlerState: handlerState,
                     draftState: draftState,
                     stickState: stickState,
+                    xrp2iState: xrp2iState,
+                    gunState: gunState,
                     activeTypes: sessionCoordinator.activeSessionTypes,
                     onTapHome: { goHome() }
                 )
@@ -402,6 +454,8 @@ struct RootTabView: View {
                         handlerState: handlerState,
                         draftState: draftState,
                         stickState: stickState,
+                        xrp2iState: xrp2iState,
+                        gunState: gunState,
                         onTapHome: { goHome() }
                     )
             }
@@ -413,6 +467,8 @@ struct RootTabView: View {
                         handlerState: handlerState,
                         draftState: draftState,
                         stickState: stickState,
+                        xrp2iState: xrp2iState,
+                        gunState: gunState,
                         onTapHome: { goHome() }
                     )
             }
@@ -424,6 +480,8 @@ struct RootTabView: View {
                         handlerState: handlerState,
                         draftState: draftState,
                         stickState: stickState,
+                        xrp2iState: xrp2iState,
+                        gunState: gunState,
                         onTapHome: { goHome() }
                     )
             }
@@ -435,6 +493,8 @@ struct RootTabView: View {
                         handlerState: handlerState,
                         draftState: draftState,
                         stickState: stickState,
+                        xrp2iState: xrp2iState,
+                        gunState: gunState,
                         onTapHome: { goHome() }
                     )
             }
@@ -445,6 +505,8 @@ struct RootTabView: View {
                 handlerState: handlerState,
                 draftState: draftState,
                 stickState: stickState,
+                xrp2iState: xrp2iState,
+                gunState: gunState,
                 onTapHome: { goHome() }
             )
         }
@@ -456,6 +518,8 @@ private extension View {
         handlerState: ConnectionState,
         draftState: ConnectionState,
         stickState: ConnectionState,
+        xrp2iState: ConnectionState,
+        gunState: ConnectionState,
         activeTypes: Set<SetupSessionType>? = nil,
         onTapHome: @escaping () -> Void
     ) -> some View {
@@ -464,6 +528,8 @@ private extension View {
                 handlerState: handlerState,
                 draftState: draftState,
                 stickState: stickState,
+                xrp2iState: xrp2iState,
+                gunState: gunState,
                 activeTypes: activeTypes,
                 onTapHome: onTapHome
             )
@@ -475,32 +541,48 @@ private struct GlobalNavPillsModifier: ViewModifier {
     let handlerState: ConnectionState
     let draftState: ConnectionState
     let stickState: ConnectionState
+    let xrp2iState: ConnectionState
+    let gunState: ConnectionState
     let activeTypes: Set<SetupSessionType>?
     let onTapHome: () -> Void
 
+    @EnvironmentObject private var sessionCoordinator: ActiveSessionCoordinator
+    @EnvironmentObject private var store: LocalDataStore
     @State private var showConnectivity = false
-    @EnvironmentObject private var gunListener: GunListener
-
-    private var gunConnectionState: ConnectionState {
-        switch gunListener.state {
-        case .error:
-            return .error("Gun listener error")
-        case .starting:
-            return .connecting
-        case .listening:
-            return gunListener.lastPeer == "—" ? .connecting : .connected
-        case .stopped:
-            return .disconnected
-        }
-    }
 
     func body(content: Content) -> some View {
         let usage: (h: Bool, d: Bool, s: Bool, x: Bool, g: Bool)
 
-        if let activeTypes, !activeTypes.isEmpty {
-            usage = connectionPillUsage(for: activeTypes)
-        } else {
+        if sessionCoordinator.activeSessionID == nil {
             usage = (h: true, d: true, s: true, x: true, g: true)
+        } else {
+            let liveTypes = activeTypes ?? sessionCoordinator.activeSessionTypes
+            var baseUsage: (h: Bool, d: Bool, s: Bool, x: Bool, g: Bool)
+
+            if !liveTypes.isEmpty {
+                baseUsage = connectionPillUsage(for: liveTypes)
+            } else {
+                baseUsage = (h: true, d: true, s: true, x: true, g: true)
+            }
+
+            if let sessionID = sessionCoordinator.activeSessionID,
+               let cfg = store.config(for: sessionID) {
+
+                let scannerType = cfg.scannerType
+
+                let showStick = (scannerType == .stickReader)
+                let showXrp = (scannerType == .xrp2i)
+
+                usage = (
+                    h: baseUsage.h,
+                    d: baseUsage.d,
+                    s: baseUsage.s && showStick,
+                    x: baseUsage.x && showXrp,
+                    g: baseUsage.g
+                )
+            } else {
+                usage = baseUsage
+            }
         }
 
         return content
@@ -529,8 +611,8 @@ private struct GlobalNavPillsModifier: ViewModifier {
                             handlerState: handlerState,
                             draftState: draftState,
                             stickState: stickState,
-                            xrp2iState: .disconnected,
-                            gunState: gunConnectionState,
+                            xrp2iState: xrp2iState,
+                            gunState: gunState,
                             useHandler: usage.h,
                             useDraft: usage.d,
                             useStick: usage.s,
@@ -552,7 +634,6 @@ private struct GlobalNavPillsModifier: ViewModifier {
             .toolbarBackground(.thinMaterial, for: .navigationBar)
     }
 }
-
 private enum AppTab: Hashable {
     case session, individual, drafting, summary, history, more
 
@@ -584,6 +665,8 @@ private struct MoreTabRoot: View {
     let handlerState: ConnectionState
     let draftState: ConnectionState
     let stickState: ConnectionState
+    let xrp2iState: ConnectionState
+    let gunState: ConnectionState
     let onTapHome: () -> Void
 
     var body: some View {
@@ -593,6 +676,8 @@ private struct MoreTabRoot: View {
                     handlerState: handlerState,
                     draftState: draftState,
                     stickState: stickState,
+                    xrp2iState: xrp2iState,
+                    gunState: gunState,
                     onTapHome: onTapHome
                 )
         }

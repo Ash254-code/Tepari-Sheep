@@ -63,8 +63,14 @@ struct SessionSetupSessionTypesStepView: View {
                 // Otherwise only enable types that keep us "reachable" from at least one allowed final set
                 return SetupSessionTypeRules.canAdd(t, to: selectedTypes)
             },
-            onSelectionChanged: { _ in onSelectionChanged() }
+            onSelectionChanged: { _ in
+                normalizeSelectedTypes()
+                onSelectionChanged()
+            }
         )
+        .onAppear {
+            normalizeSelectedTypes()
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if hasBottomArea {
                 VStack(spacing: 10) {
@@ -110,9 +116,52 @@ struct SessionSetupSessionTypesStepView: View {
         Binding<Set<String>>(
             get: { Set(selectedTypes.map { $0.rawValue }) },
             set: { newSet in
-                selectedTypes = Set(newSet.compactMap { SetupSessionType(rawValue: $0) })
+                var mapped = Set(newSet.compactMap { SetupSessionType(rawValue: $0) })
+
+                // Keep the selection aligned with your actual session layouts:
+                // almost every operational flow is scan-driven unless it is explicitly
+                // weigh-only or draft-only.
+                if mapped.contains(.pregTesting) ||
+                    mapped.contains(.transfer) ||
+                    mapped.contains(.sale) ||
+                    mapped.contains(.lambMarking) ||
+                    mapped.contains(.traitInput) ||
+                    mapped.contains(.treatment) {
+                    mapped.insert(.scan)
+                }
+
+                if mapped.contains(.weigh) && !mapped.contains(.draft) && !mapped.contains(.treatment) {
+                    // leave weigh-only as weigh-only
+                }
+
+                if mapped.contains(.draft) && !mapped.contains(.weigh) {
+                    // leave draft-only / scan-draft selection alone
+                }
+
+                selectedTypes = mapped
             }
         )
+    }
+
+    // =========================================================
+    // MARK: Selection normalization
+    // =========================================================
+
+    private func normalizeSelectedTypes() {
+        var normalized = selectedTypes
+
+        if normalized.contains(.pregTesting) ||
+            normalized.contains(.transfer) ||
+            normalized.contains(.sale) ||
+            normalized.contains(.lambMarking) ||
+            normalized.contains(.traitInput) ||
+            normalized.contains(.treatment) {
+            normalized.insert(.scan)
+        }
+
+        if normalized != selectedTypes {
+            selectedTypes = normalized
+        }
     }
 
     // =========================================================
