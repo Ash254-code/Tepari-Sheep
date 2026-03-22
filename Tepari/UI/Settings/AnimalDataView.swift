@@ -15,6 +15,25 @@ struct AnimalDataView: View {
     @State private var isSelecting: Bool = false
     @State private var showDeleteConfirmation: Bool = false
 
+    @State private var showBulkEditSheet: Bool = false
+    @State private var showBulkEditConfirmation: Bool = false
+
+    @State private var selectedBulkField: BulkEditField = .animalClass
+    @State private var selectedBulkMode: BulkTextMode = .replace
+
+    @State private var pendingBulkClass: LocalDataStore.AnimalClass = .flock
+    @State private var pendingBulkSex: LocalDataStore.Sex = .ewe
+    @State private var pendingBulkStatus: AnimalStatus = .dry
+    @State private var pendingBulkMobName: String = ""
+
+    @State private var pendingBulkBreed: String = ""
+    @State private var pendingBulkBirthYear: String = ""
+    @State private var pendingBulkBirthMonth: Int = 1
+
+    @State private var pendingBulkComments: String = ""
+    @State private var pendingBulkUserField1: String = ""
+    @State private var pendingBulkUserField2: String = ""
+
     var body: some View {
         ZStack {
             GlassBackground()
@@ -68,6 +87,14 @@ struct AnimalDataView: View {
         } message: {
             Text(deleteConfirmationMessage)
         }
+        .alert(bulkEditConfirmationTitle, isPresented: $showBulkEditConfirmation) {
+            Button("Apply", role: .destructive) {
+                applyBulkEdit()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(bulkEditConfirmationMessage)
+        }
         .sheet(isPresented: $coordinator.showIndividualAnimalView) {
             IndividualAnimalView()
                 .environmentObject(store)
@@ -75,6 +102,11 @@ struct AnimalDataView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             filterSheet
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showBulkEditSheet) {
+            bulkEditSheet
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -96,6 +128,71 @@ struct AnimalDataView: View {
             }
 
             Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+// MARK: - Bulk Edit Types
+
+private extension AnimalDataView {
+
+    enum BulkEditField: String, CaseIterable, Identifiable {
+        case animalClass
+        case sex
+        case status
+        case mob
+        case breed
+        case birthYear
+        case birthMonth
+        case comments
+        case userField1
+        case userField2
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .animalClass: return "Class"
+            case .sex: return "Sex"
+            case .status: return "Status"
+            case .mob: return "Mob"
+            case .breed: return "Breed"
+            case .birthYear: return "Birth Year"
+            case .birthMonth: return "Birth Month"
+            case .comments: return "Comments"
+            case .userField1: return "User Field 1"
+            case .userField2: return "User Field 2"
+            }
+        }
+
+        var supportsClear: Bool {
+            switch self {
+            case .animalClass, .sex, .status, .mob, .breed, .birthYear, .birthMonth, .comments, .userField1, .userField2:
+                return true
+            }
+        }
+
+        var isTextField: Bool {
+            switch self {
+            case .comments, .userField1, .userField2:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    enum BulkTextMode: String, CaseIterable, Identifiable {
+        case replace
+        case clear
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .replace: return "Replace"
+            case .clear: return "Clear"
+            }
         }
     }
 }
@@ -168,7 +265,7 @@ private extension AnimalDataView {
         VStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.systemGray5))   // ✅ fixed
+                    .fill(Color(.systemGray5))
 
                 Image(systemName: "hare")
                     .foregroundColor(.primary)
@@ -469,6 +566,7 @@ private extension AnimalDataView {
                         }
                     }
                 }
+
                 Section("Sex") {
                     ForEach(sexOptions, id: \.self) { sex in
                         multiSelectRow(
@@ -479,6 +577,7 @@ private extension AnimalDataView {
                         }
                     }
                 }
+
                 Section("Mob") {
                     ForEach(mobOptions, id: \.self) { mob in
                         multiSelectRow(
@@ -538,6 +637,148 @@ private extension AnimalDataView {
     }
 }
 
+// MARK: - Bulk Edit Sheet
+
+private extension AnimalDataView {
+
+    var bulkEditSheet: some View {
+        NavigationStack {
+            List {
+                Section("Field") {
+                    Picker("Field", selection: $selectedBulkField) {
+                        ForEach(BulkEditField.allCases) { field in
+                            Text(field.label).tag(field)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                if selectedBulkField.isTextField || selectedBulkField.supportsClear {
+                    Section("Mode") {
+                        Picker("Mode", selection: $selectedBulkMode) {
+                            ForEach(BulkTextMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
+                if selectedBulkMode == .replace {
+                    bulkEditValueSection
+                }
+
+                Section {
+                    Text("\(vm.selectedCountInFiltered) selected animals will be updated.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.secondary)
+                }
+            }
+            .navigationTitle("Bulk Edit")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        showBulkEditSheet = false
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Continue") {
+                        showBulkEditSheet = false
+                        showBulkEditConfirmation = true
+                    }
+                    .disabled(!isBulkEditReadyToApply)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    var bulkEditValueSection: some View {
+        switch selectedBulkField {
+        case .animalClass:
+            Section("Value") {
+                Picker("Class", selection: $pendingBulkClass) {
+                    ForEach(LocalDataStore.AnimalClass.allCases, id: \.id) { animalClass in
+                        Text(animalClass.label).tag(animalClass)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+        case .sex:
+            Section("Value") {
+                Picker("Sex", selection: $pendingBulkSex) {
+                    ForEach(LocalDataStore.Sex.allCases, id: \.id) { sex in
+                        Text(sex.label).tag(sex)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+        case .status:
+            Section("Value") {
+                Picker("Status", selection: $pendingBulkStatus) {
+                    ForEach(AnimalStatus.allCases, id: \.id) { status in
+                        Text(status.label).tag(status)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+        case .mob:
+            Section("Value") {
+                Picker("Mob", selection: $pendingBulkMobName) {
+                    ForEach(mobOptions, id: \.self) { mob in
+                        Text(mob).tag(mob)
+                    }
+                }
+            }
+
+        case .breed:
+            Section("Value") {
+                TextField("Breed", text: $pendingBulkBreed)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+            }
+
+        case .birthYear:
+            Section("Value") {
+                TextField("Birth Year", text: $pendingBulkBirthYear)
+                    .keyboardType(.numberPad)
+            }
+
+        case .birthMonth:
+            Section("Value") {
+                Picker("Birth Month", selection: $pendingBulkBirthMonth) {
+                    ForEach(1...12, id: \.self) { month in
+                        Text("\(month)").tag(month)
+                    }
+                }
+            }
+
+        case .comments:
+            Section("Value") {
+                TextField("Comments", text: $pendingBulkComments, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+
+        case .userField1:
+            Section("Value") {
+                TextField("User Field 1", text: $pendingBulkUserField1, axis: .vertical)
+                    .lineLimit(2...4)
+            }
+
+        case .userField2:
+            Section("Value") {
+                TextField("User Field 2", text: $pendingBulkUserField2, axis: .vertical)
+                    .lineLimit(2...4)
+            }
+        }
+    }
+}
+
 // MARK: - Bulk
 
 private extension AnimalDataView {
@@ -569,6 +810,31 @@ private extension AnimalDataView {
             }
             .buttonStyle(.plain)
             .disabled(vm.derived.filteredIDs.isEmpty)
+
+            Divider()
+
+            Button {
+                resetBulkEditDraft()
+                showBulkEditSheet = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "square.and.pencil")
+                        .foregroundStyle(.blue)
+                        .frame(width: 22)
+
+                    Text("Bulk Edit")
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+
+                    Text("\(vm.selectedCountInFiltered)")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.selectedCountInFiltered == 0)
 
             Divider()
 
@@ -791,7 +1057,7 @@ private struct AnimalDataRowCard: View, Equatable {
 // MARK: - Styling + Actions
 
 private extension AnimalDataView {
-    
+
     var sexOptions: [String] {
         Array(
             Set(
@@ -803,6 +1069,7 @@ private extension AnimalDataView {
         )
         .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
     var mobOptions: [String] {
         Array(
             Set(
@@ -837,6 +1104,7 @@ private extension AnimalDataView {
         if vm.sortKey != .updatedAt || vm.sortAscending { count += 1 }
         return count
     }
+
     var resultsTitle: String {
         if vm.derived.totalMatchingCount > vm.derived.visibleCount {
             return "Animals (\(vm.derived.visibleCount) of \(vm.derived.totalMatchingCount))"
@@ -863,12 +1131,61 @@ private extension AnimalDataView {
         colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045)
     }
 
+    var isBulkEditReadyToApply: Bool {
+        guard vm.selectedCountInFiltered > 0 else { return false }
+
+        if selectedBulkMode == .clear {
+            return true
+        }
+
+        switch selectedBulkField {
+        case .animalClass, .sex, .status:
+            return true
+
+        case .mob:
+            return !pendingBulkMobName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        case .breed:
+            return !pendingBulkBreed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        case .birthYear:
+            return Int(pendingBulkBirthYear.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+
+        case .birthMonth:
+            return (1...12).contains(pendingBulkBirthMonth)
+
+        case .comments:
+            return !pendingBulkComments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        case .userField1:
+            return !pendingBulkUserField1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        case .userField2:
+            return !pendingBulkUserField2.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     func clearFilters() {
         vm.clearAllFilters()
         vm.updateSearchText("")
         vm.sortKey = .updatedAt
         vm.sortAscending = false
         showSearchField = false
+    }
+
+    func resetBulkEditDraft() {
+        selectedBulkField = .animalClass
+        selectedBulkMode = .replace
+        pendingBulkClass = .flock
+        pendingBulkSex = .ewe
+        pendingBulkStatus = .dry
+        pendingBulkMobName = mobOptions.first ?? ""
+        pendingBulkBreed = ""
+        pendingBulkBirthYear = ""
+        pendingBulkBirthMonth = 1
+        pendingBulkComments = ""
+        pendingBulkUserField1 = ""
+        pendingBulkUserField2 = ""
     }
 
     var deleteConfirmationTitle: String {
@@ -879,9 +1196,123 @@ private extension AnimalDataView {
         "This will permanently delete selected animals."
     }
 
+    var bulkEditConfirmationTitle: String {
+        "Apply bulk edit to \(vm.selectedCountInFiltered) animals?"
+    }
+
+    var bulkEditConfirmationMessage: String {
+        if selectedBulkMode == .clear {
+            return "This will clear \(selectedBulkField.label) for the selected animals."
+        }
+
+        switch selectedBulkField {
+        case .animalClass:
+            return "This will change Class to \(pendingBulkClass.label)."
+        case .sex:
+            return "This will change Sex to \(pendingBulkSex.label)."
+        case .status:
+            return "This will change Status to \(pendingBulkStatus.label)."
+        case .mob:
+            return "This will change Mob to \(pendingBulkMobName)."
+        case .breed:
+            return "This will change Breed to \(pendingBulkBreed)."
+        case .birthYear:
+            return "This will change Birth Year to \(pendingBulkBirthYear)."
+        case .birthMonth:
+            return "This will change Birth Month to \(pendingBulkBirthMonth)."
+        case .comments:
+            return "This will replace Comments for the selected animals."
+        case .userField1:
+            return "This will replace User Field 1 for the selected animals."
+        case .userField2:
+            return "This will replace User Field 2 for the selected animals."
+        }
+    }
+
     func deleteSelectedAnimals() {
         store.deleteAnimals(ids: Array(vm.selectedAnimalIDs))
         vm.selectedAnimalIDs.removeAll()
         isSelecting = false
+    }
+
+    func applyBulkEdit() {
+        let ids = Array(vm.selectedAnimalIDs)
+        guard !ids.isEmpty else { return }
+
+        switch selectedBulkField {
+        case .animalClass:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalClass(ids: ids, to: nil)
+            } else {
+                store.bulkUpdateAnimalClass(ids: ids, to: pendingBulkClass)
+            }
+
+        case .sex:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalSex(ids: ids, to: nil)
+            } else {
+                store.bulkUpdateAnimalSex(ids: ids, to: pendingBulkSex)
+            }
+
+        case .status:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalStatus(ids: ids, to: nil)
+            } else {
+                store.bulkUpdateAnimalStatus(ids: ids, to: pendingBulkStatus)
+            }
+
+        case .mob:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalMob(ids: ids, toMobName: nil)
+            } else {
+                store.bulkUpdateAnimalMob(ids: ids, toMobName: pendingBulkMobName)
+            }
+
+        case .breed:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalBreed(ids: ids, to: nil)
+            } else {
+                store.bulkUpdateAnimalBreed(ids: ids, to: pendingBulkBreed)
+            }
+
+        case .birthYear:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalBirthYear(ids: ids, to: nil)
+            } else if let year = Int(pendingBulkBirthYear.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                store.bulkUpdateAnimalBirthYear(ids: ids, to: year)
+            }
+
+        case .birthMonth:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalBirthMonth(ids: ids, to: nil)
+            } else {
+                store.bulkUpdateAnimalBirthMonth(ids: ids, to: pendingBulkBirthMonth)
+            }
+
+        case .comments:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: nil, userField1: nil, userField2: nil, target: .comments, clear: true)
+            } else {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: pendingBulkComments, userField1: nil, userField2: nil, target: .comments, clear: false)
+            }
+
+        case .userField1:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: nil, userField1: nil, userField2: nil, target: .userField1, clear: true)
+            } else {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: nil, userField1: pendingBulkUserField1, userField2: nil, target: .userField1, clear: false)
+            }
+
+        case .userField2:
+            if selectedBulkMode == .clear {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: nil, userField1: nil, userField2: nil, target: .userField2, clear: true)
+            } else {
+                store.bulkUpdateAnimalNotes(ids: ids, comments: nil, userField1: nil, userField2: pendingBulkUserField2, target: .userField2, clear: false)
+            }
+        }
+
+        vm.selectedAnimalIDs.removeAll()
+        isSelecting = false
+        vm.recomputeDerivedData()
     }
 }

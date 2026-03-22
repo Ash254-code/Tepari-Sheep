@@ -1,4 +1,3 @@
-// LocalDataStore.swift
 import Foundation
 import Combine
 import SwiftUI
@@ -2567,6 +2566,253 @@ final class LocalDataStore: ObservableObject {
         scheduleSave()
     }
 
+    enum BulkNotesTarget {
+        case comments
+        case userField1
+        case userField2
+    }
+
+    func bulkUpdateAnimalClass(ids: [UUID], to animalClass: AnimalClass?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+
+                let newKlass = animalClass?.rawValue
+                let classChanged = animals[i].animalClass != animalClass
+                let klassChanged = animals[i].klass != newKlass
+
+                guard classChanged || klassChanged else { continue }
+
+                animals[i].animalClass = animalClass
+                animals[i].klass = newKlass
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalSex(ids: [UUID], to sex: Sex?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+                guard animals[i].sex != sex else { continue }
+
+                animals[i].sex = sex
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalStatus(ids: [UUID], to status: AnimalStatus?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+                guard animals[i].status != status else { continue }
+
+                animals[i].status = status
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalMob(ids: [UUID], toMobName mobName: String?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        let trimmedMobName = mobName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+
+                if let trimmedMobName, !trimmedMobName.isEmpty {
+                    let farmID = animals[i].farmID
+                    let key = "\(farmID.uuidString)|\(trimmedMobName.lowercased())"
+
+                    let resolvedMobID: UUID = {
+                        if let existing = mobIDByFarmAndNameIndex[key] {
+                            return existing
+                        }
+                        let created = addMob(
+                            farmID: farmID,
+                            name: trimmedMobName,
+                            colorHex: defaultImportedMobColorHex
+                        )
+                        return created.id
+                    }()
+
+                    guard animals[i].mobID != resolvedMobID else { continue }
+                    animals[i].mobID = resolvedMobID
+                    animals[i].updatedAt = Date()
+                    didChange = true
+                } else {
+                    guard animals[i].mobID != nil else { continue }
+                    animals[i].mobID = nil
+                    animals[i].updatedAt = Date()
+                    didChange = true
+                }
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalBreed(ids: [UUID], to breed: String?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        let trimmedBreed = breed?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBreed = (trimmedBreed?.isEmpty == true) ? nil : trimmedBreed
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+                guard animals[i].breed != normalizedBreed else { continue }
+
+                animals[i].breed = normalizedBreed
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalBirthYear(ids: [UUID], to year: Int?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+                guard animals[i].birthYear != year else { continue }
+
+                animals[i].birthYear = year
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalBirthMonth(ids: [UUID], to month: Int?) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        if let month, !(1...12).contains(month) { return }
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+                guard animals[i].birthMonth != month else { continue }
+
+                animals[i].birthMonth = month
+                animals[i].updatedAt = Date()
+                didChange = true
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
+    func bulkUpdateAnimalNotes(
+        ids: [UUID],
+        comments: String?,
+        userField1: String?,
+        userField2: String?,
+        target: BulkNotesTarget,
+        clear: Bool
+    ) {
+        let idSet = Set(ids)
+        guard !idSet.isEmpty else { return }
+
+        let trimmedComments = comments?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser1 = userField1?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser2 = userField2?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        withDeferredSave {
+            var didChange = false
+
+            for i in animals.indices {
+                guard idSet.contains(animals[i].id) else { continue }
+
+                switch target {
+                case .comments:
+                    let newValue: String? = clear ? nil : ((trimmedComments?.isEmpty == true) ? nil : trimmedComments)
+                    guard animals[i].comments != newValue else { continue }
+                    animals[i].comments = newValue
+                    animals[i].updatedAt = Date()
+                    didChange = true
+
+                case .userField1:
+                    let newValue: String? = clear ? nil : ((trimmedUser1?.isEmpty == true) ? nil : trimmedUser1)
+                    guard animals[i].userField1 != newValue else { continue }
+                    animals[i].userField1 = newValue
+                    animals[i].updatedAt = Date()
+                    didChange = true
+
+                case .userField2:
+                    let newValue: String? = clear ? nil : ((trimmedUser2?.isEmpty == true) ? nil : trimmedUser2)
+                    guard animals[i].userField2 != newValue else { continue }
+                    animals[i].userField2 = newValue
+                    animals[i].updatedAt = Date()
+                    didChange = true
+                }
+            }
+
+            guard didChange else { return }
+            rebuildIndexes()
+            scheduleSave()
+        }
+    }
+
     func setSessionFarm(sessionID: UUID, farmID: UUID?) {
         if let farmID { sessionFarmID[sessionID] = farmID }
         else { sessionFarmID.removeValue(forKey: sessionID) }
@@ -3159,6 +3405,21 @@ final class LocalDataStore: ObservableObject {
         scheduleSave()
     }
 
+    func updateAnimalBreed(farmID: UUID, eidRaw: String, breed: String?) {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
+
+        let trimmed = breed?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = (trimmed?.isEmpty == true) ? nil : trimmed
+
+        guard animals[idx].breed != normalized else { return }
+
+        animals[idx].breed = normalized
+        animals[idx].updatedAt = Date()
+        rebuildIndexes()
+        scheduleSave()
+    }
+
     func isMixedMobSession(_ sessionID: UUID) -> Bool {
         sessionDefaultMobName[sessionID]?.trimmingCharacters(in: .whitespacesAndNewlines)
             == SessionSetupMobStepView.mixedSentinel
@@ -3168,6 +3429,17 @@ final class LocalDataStore: ObservableObject {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
         guard animals[idx].birthYear == nil else { return }
+        animals[idx].birthYear = year
+        animals[idx].updatedAt = Date()
+        rebuildIndexes()
+        scheduleSave()
+    }
+
+    func updateAnimalBirthYear(farmID: UUID, eidRaw: String, year: Int?) {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
+        guard animals[idx].birthYear != year else { return }
+
         animals[idx].birthYear = year
         animals[idx].updatedAt = Date()
         rebuildIndexes()
@@ -3185,6 +3457,18 @@ final class LocalDataStore: ObservableObject {
         scheduleSave()
     }
 
+    func updateAnimalBirthMonth(farmID: UUID, eidRaw: String, month: Int?) {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
+        if let month, !(1...12).contains(month) { return }
+        guard animals[idx].birthMonth != month else { return }
+
+        animals[idx].birthMonth = month
+        animals[idx].updatedAt = Date()
+        rebuildIndexes()
+        scheduleSave()
+    }
+
     func updateAnimalStatusIfBlank(farmID: UUID, eidRaw: String, status: AnimalStatus) {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
@@ -3194,6 +3478,46 @@ final class LocalDataStore: ObservableObject {
             rebuildIndexes()
             scheduleSave()
         }
+    }
+
+    func updateAnimalStatus(farmID: UUID, eidRaw: String, status: AnimalStatus?) {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
+        guard animals[idx].status != status else { return }
+
+        animals[idx].status = status
+        animals[idx].updatedAt = Date()
+        rebuildIndexes()
+        scheduleSave()
+    }
+
+    func updateAnimalMob(farmID: UUID, eidRaw: String, mobName: String?) {
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard let idx = animals.firstIndex(where: { $0.farmID == farmID && $0.eidRaw == eid }) else { return }
+
+        let trimmedMobName = mobName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let trimmedMobName, !trimmedMobName.isEmpty {
+            let key = "\(farmID.uuidString)|\(trimmedMobName.lowercased())"
+
+            let resolvedMobID: UUID = {
+                if let existing = mobIDByFarmAndNameIndex[key] {
+                    return existing
+                }
+                let created = addMob(farmID: farmID, name: trimmedMobName, colorHex: defaultImportedMobColorHex)
+                return created.id
+            }()
+
+            guard animals[idx].mobID != resolvedMobID else { return }
+            animals[idx].mobID = resolvedMobID
+        } else {
+            guard animals[idx].mobID != nil else { return }
+            animals[idx].mobID = nil
+        }
+
+        animals[idx].updatedAt = Date()
+        rebuildIndexes()
+        scheduleSave()
     }
 
     func updateAnimalNotes(
@@ -3218,7 +3542,6 @@ final class LocalDataStore: ObservableObject {
         rebuildIndexes()
         scheduleSave()
     }
-
     // =========================================================
     // MARK: - Resolvers
     // =========================================================

@@ -426,13 +426,11 @@ struct IndividualAnimalView: View {
                     title: "Latest Snapshot",
                     subtitle: "Current values",
                     icon: "waveform.path.ecg.rectangle.fill",
-                    tint: .blue,
-                    trailing: {
-                        labelChip("Now")
-                            .fixedSize()
-                    }
-                )
-
+                    tint: .blue
+                ) {
+                    labelChip("Now")
+                        .fixedSize()
+                }
                 Divider().opacity(0.10)
 
                 VStack(spacing: 10) {
@@ -458,8 +456,11 @@ struct IndividualAnimalView: View {
 
     private func snapshotValueCard(title: String, value: String, icon: String, tint: Color) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            sectionIcon(icon: icon, tint: tint, size: 32)
-                .fixedSize()
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .symbolRenderingMode(.monochrome)
+                .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -486,7 +487,6 @@ struct IndividualAnimalView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
     // =====================================================
     // MARK: - Empty
     // =====================================================
@@ -808,12 +808,11 @@ struct IndividualAnimalView: View {
                     title: "Weight Trend",
                     subtitle: "Visual trend over time",
                     icon: "chart.line.uptrend.xyaxis",
-                    tint: .blue,
-                    trailing: {
-                        labelChip("\(weightChartPoints.count)")
-                    }
-                )
-
+                    tint: .blue
+                ) {
+                    labelChip("\(weightChartPoints.count)")
+                        .fixedSize()
+                }
                 Divider().opacity(0.10)
 
                 if weightChartPoints.count < 2 {
@@ -843,7 +842,6 @@ struct IndividualAnimalView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
-
     // =====================================================
     // MARK: - Weight History
     // =====================================================
@@ -1356,7 +1354,6 @@ struct IndividualAnimalView: View {
         .frame(width: size, height: size)
         .fixedSize()
     }
-
     private func sectionTitle<Trailing: View>(
         title: String,
         subtitle: String,
@@ -1371,6 +1368,7 @@ struct IndividualAnimalView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.headline)
+
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1394,6 +1392,7 @@ struct IndividualAnimalView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.headline)
+
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1402,7 +1401,6 @@ struct IndividualAnimalView: View {
             Spacer(minLength: 0)
         }
     }
-
     private func sectionHistoryHeader(
         title: String,
         subtitle: String,
@@ -1427,6 +1425,7 @@ struct IndividualAnimalView: View {
                 }
             }
         }
+    
     }
 
     private func labelChip(_ text: String) -> some View {
