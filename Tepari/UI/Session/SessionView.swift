@@ -1283,8 +1283,8 @@ struct SessionView: View {
                                     .fill(
                                         LinearGradient(
                                             colors: [
-                                                Color(red: 0.10, green: 0.53, blue: 0.95),
-                                                Color(red: 0.05, green: 0.40, blue: 0.86)
+                                                Color.gray.opacity(0.95),
+                                                Color.gray.opacity(0.75)
                                             ],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
@@ -1312,8 +1312,8 @@ struct SessionView: View {
                                     .fill(
                                         LinearGradient(
                                             colors: [
-                                                Color(red: 0.15, green: 0.58, blue: 0.98),
-                                                Color(red: 0.08, green: 0.45, blue: 0.90)
+                                                Color.gray.opacity(0.75),
+                                                Color.gray.opacity(0.58)
                                             ],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing

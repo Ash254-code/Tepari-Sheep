@@ -34,6 +34,15 @@ struct IndividualAnimalView: View {
         let weight: Double
     }
 
+    private struct SnapshotData {
+        let weight: String
+        let micron: String
+        let staple: String
+        let fleece: String
+        let totalLambs: String
+        let lambing: String
+    }
+
     private var weightChartPoints: [WeightPoint] {
         weightHistory
             .filter { $0.lockedWeight > 0 }
@@ -72,8 +81,11 @@ struct IndividualAnimalView: View {
     }
 
     private var totalLambsValue: String {
+        guard displayEID != "—", !displayEID.isEmpty else { return "—" }
+        guard let farmID = preferredFarmID else { return "—" }
+
         let total = store.totalLambsForAnimal(
-            farmID: preferredFarmID,
+            farmID: farmID,
             eidRaw: displayEID
         )
         return "\(total)"
@@ -82,6 +94,17 @@ struct IndividualAnimalView: View {
     private var latestLambingValue: String {
         guard let latest = lambingHistory.first else { return "—" }
         return latest.summary
+    }
+
+    private var latestSnapshotData: SnapshotData {
+        SnapshotData(
+            weight: latestWeightValue,
+            micron: latestMicronValue,
+            staple: latestStapleValue,
+            fleece: latestFleeceValue,
+            totalLambs: totalLambsValue,
+            lambing: latestLambingValue
+        )
     }
 
     private var chartYMin: Double {
@@ -128,6 +151,23 @@ struct IndividualAnimalView: View {
     private var history: [AnimalRecord] {
         store.allRecords(forEID: displayEID)
             .sorted { $0.recordedAt > $1.recordedAt }
+    }
+
+    private var detailsDirty: Bool {
+        let existing = profile
+
+        return sex != existing?.sex
+            || selectedMobID != existing?.mobID
+            || animalClass != existing?.animalClass
+            || animalStatus != existing?.status
+            || comments.trimmedOrNil != existing?.comments?.trimmedOrNil
+            || user1.trimmedOrNil != existing?.userField1?.trimmedOrNil
+            || user2.trimmedOrNil != existing?.userField2?.trimmedOrNil
+    }
+
+    private func applyDetailsEdits() {
+        guard detailsDirty, canSave else { return }
+        saveEdits()
     }
 
     private var weightHistory: [AnimalRecord] {
@@ -382,40 +422,33 @@ struct IndividualAnimalView: View {
     private var latestSnapshotGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Latest Snapshot")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Text("Now")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
-                }
+                sectionTitle(
+                    title: "Latest Snapshot",
+                    subtitle: "Current values",
+                    icon: "waveform.path.ecg.rectangle.fill",
+                    tint: .blue,
+                    trailing: {
+                        labelChip("Now")
+                            .fixedSize()
+                    }
+                )
 
                 Divider().opacity(0.10)
 
                 VStack(spacing: 10) {
                     HStack(spacing: 10) {
-                        snapshotValueCard(title: "Weight", value: latestWeightValue, icon: "scalemass")
-                        snapshotValueCard(title: "Micron", value: latestMicronValue, icon: "waveform.path.ecg")
+                        snapshotValueCard(title: "Weight", value: latestWeightValue, icon: "scalemass", tint: .blue)
+                        snapshotValueCard(title: "Micron", value: latestMicronValue, icon: "waveform.path.ecg", tint: .purple)
                     }
 
                     HStack(spacing: 10) {
-                        snapshotValueCard(title: "Staple", value: latestStapleValue, icon: "ruler")
-                        snapshotValueCard(title: "Fleece", value: latestFleeceValue, icon: "tshirt")
+                        snapshotValueCard(title: "Staple", value: latestStapleValue, icon: "ruler", tint: .orange)
+                        snapshotValueCard(title: "Fleece", value: latestFleeceValue, icon: "tshirt.fill", tint: .teal)
                     }
 
                     HStack(spacing: 10) {
-                        snapshotValueCard(title: "Total Lambs", value: totalLambsValue, icon: "sum")
-                        snapshotValueCard(title: "Lambing", value: latestLambingValue, icon: "hare.fill")
+                        snapshotValueCard(title: "Total Lambs", value: totalLambsValue, icon: "sum", tint: .green)
+                        snapshotValueCard(title: "Lambing", value: latestLambingValue, icon: "hare.fill", tint: .pink)
                     }
                 }
             }
@@ -423,25 +456,23 @@ struct IndividualAnimalView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func snapshotValueCard(title: String, value: String, icon: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+    private func snapshotValueCard(title: String, value: String, icon: String, tint: Color) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            sectionIcon(icon: icon, tint: tint, size: 32)
+                .fixedSize()
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                Text(value)
+                Text(normalizeSnapshotValue(value))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -462,13 +493,13 @@ struct IndividualAnimalView: View {
 
     private var emptyGlass: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("No animal loaded")
-                    .font(.title3.weight(.semibold))
-
-                Text("Scan an animal to open its details.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                sectionTitle(
+                    title: "No animal loaded",
+                    subtitle: "Scan an animal to open its details",
+                    icon: "dot.scope",
+                    tint: .orange
+                )
             }
         }
     }
@@ -479,55 +510,63 @@ struct IndividualAnimalView: View {
 
     private var identityGlass: some View {
         GlassCard {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(profile?.eidRaw ?? displayEID)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.55)
-                        .foregroundStyle(eidPillText)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(eidPillFill)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(eidPillStroke, lineWidth: 1)
-                        )
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "mappin.and.ellipse")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        Text(resolvedFarmID.flatMap(farmName) ?? "Unknown farm")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(profile?.eidRaw ?? displayEID)
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.55)
+                            .foregroundStyle(eidPillText)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(eidPillFill)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(eidPillStroke, lineWidth: 1)
+                            )
+
+                        HStack(alignment: .center, spacing: 8) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Text(resolvedFarmID.flatMap(farmName) ?? "Unknown farm")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .trailing, spacing: 8) {
+                        if let w = liveWeightText {
+                            Text(w)
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .lineLimit(1)
+
+                            if let state = liveStateText {
+                                statusChip(
+                                    state,
+                                    tone: coordinator.locked ? .good : (coordinator.stable ? .good : .muted),
+                                    icon: coordinator.locked ? "lock.fill" : (coordinator.stable ? "checkmark.seal.fill" : "dot.radiowaves.left.and.right")
+                                )
+                            }
+                        } else {
+                            statusChip("Manual", tone: .muted, icon: "hand.tap")
+                        }
                     }
                 }
 
-                Spacer(minLength: 0)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    if let w = liveWeightText {
-                        Text(w)
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .lineLimit(1)
-
-                        if let state = liveStateText {
-                            statusChip(
-                                state,
-                                tone: coordinator.locked ? .good : (coordinator.stable ? .good : .muted),
-                                icon: coordinator.locked ? "lock.fill" : (coordinator.stable ? "checkmark.seal.fill" : "dot.radiowaves.left.and.right")
-                            )
-                        }
-                    } else {
-                        statusChip("Manual", tone: .muted, icon: "hand.tap")
-                    }
+                HStack(spacing: 8) {
+                    detailPill(currentMob?.name ?? "No Mob", tint: currentMobColor ?? .green, icon: "person.3.fill")
+                    detailPill(animalClass?.label ?? profile?.animalClass?.label ?? "No Class", tint: .purple, icon: "tag.fill")
+                    detailPill(animalStatus?.label ?? profile?.status?.label ?? "No Status", tint: .orange, icon: "exclamationmark.circle.fill")
                 }
             }
         }
@@ -540,7 +579,16 @@ struct IndividualAnimalView: View {
 
     private var detailsGlass: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle(
+                    title: "Details",
+                    subtitle: "Edit animal fields",
+                    icon: "slider.horizontal.3",
+                    tint: .orange
+                )
+
+                Divider().opacity(0.10)
+
                 HStack(spacing: 10) {
                     glassMenuPicker(
                         title: "Sex",
@@ -604,22 +652,40 @@ struct IndividualAnimalView: View {
                     isMultiline: true
                 )
 
+                HStack(spacing: 10) {
+                    glassTextField(
+                        title: "User Field 1",
+                        text: $user1,
+                        icon: "1.circle.fill",
+                        isMultiline: false
+                    )
+
+                    glassTextField(
+                        title: "User Field 2",
+                        text: $user2,
+                        icon: "2.circle.fill",
+                        isMultiline: false
+                    )
+                }
+
                 quickPicksRow
 
                 HStack {
                     Spacer()
 
-                    Button {
-                        saveEdits()
-                    } label: {
-                        Label("Save", systemImage: "checkmark.circle.fill")
-                            .font(.headline.weight(.semibold))
-                            .padding(.vertical, 12)
-                            .frame(minWidth: 140)
+                    Button("Save") {
+                        applyDetailsEdits()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .disabled(!canSave)
+                    .disabled(!detailsDirty || !canSave)
+                    .foregroundStyle(detailsDirty && canSave ? .white : .secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        detailsDirty && canSave
+                        ? Color.accentColor
+                        : Color.gray.opacity(scheme == .dark ? 0.28 : 0.18)
+                    )
+                    .clipShape(Capsule())
                 }
                 .padding(.top, 4)
             }
@@ -655,8 +721,11 @@ struct IndividualAnimalView: View {
     private var lambingHistoryGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                cardHeader(
+                sectionHistoryHeader(
                     title: "Lambing History",
+                    subtitle: "Born and weaned history",
+                    icon: "hare.fill",
+                    tint: .pink,
                     count: lambingHistory.count,
                     expandTitle: showAllLambing ? "Collapse" : "Show all"
                 ) {
@@ -668,9 +737,7 @@ struct IndividualAnimalView: View {
                 Divider().opacity(0.10)
 
                 if lambingHistory.isEmpty {
-                    Text("No lambing records yet for this animal.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    emptySectionText("No lambing records yet for this animal.")
                 } else if showAllLambing {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -702,6 +769,8 @@ struct IndividualAnimalView: View {
 
     private func lambingRow(_ row: LambingHistoryRow) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            sectionIcon(icon: "hare.fill", tint: .pink, size: 30)
+                .fixedSize()
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.summary)
                     .font(.subheadline.weight(.semibold))
@@ -735,23 +804,20 @@ struct IndividualAnimalView: View {
     private var weightTrendGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Weight Trend")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Text("\(weightChartPoints.count)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
+                sectionTitle(
+                    title: "Weight Trend",
+                    subtitle: "Visual trend over time",
+                    icon: "chart.line.uptrend.xyaxis",
+                    tint: .blue,
+                    trailing: {
+                        labelChip("\(weightChartPoints.count)")
+                    }
+                )
 
                 Divider().opacity(0.10)
 
                 if weightChartPoints.count < 2 {
-                    Text("At least 2 weights are needed to show a trend.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    emptySectionText("At least 2 weights are needed to show a trend.")
                 } else {
                     Chart(weightChartPoints) { point in
                         LineMark(
@@ -789,8 +855,11 @@ struct IndividualAnimalView: View {
     private var weightHistoryGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                cardHeader(
+                sectionHistoryHeader(
                     title: "Weight History",
+                    subtitle: "Recorded weights",
+                    icon: "scalemass",
+                    tint: .blue,
                     count: weightHistory.count,
                     expandTitle: showAllWeights ? "Collapse" : "Show all"
                 ) {
@@ -802,9 +871,7 @@ struct IndividualAnimalView: View {
                 Divider().opacity(0.10)
 
                 if weightHistory.isEmpty {
-                    Text("No weights yet for this animal.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    emptySectionText("No weights yet for this animal.")
                 } else if showAllWeights {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -836,25 +903,23 @@ struct IndividualAnimalView: View {
 
     private func weightRow(_ r: AnimalRecord) -> some View {
         HStack(spacing: 12) {
-            Text(String(format: "%.1f", r.lockedWeight))
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 64, alignment: .leading)
-
-            Text("kg")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(r.recordedAt, style: .date)
-                    .font(.subheadline)
+            sectionIcon(icon: "scalemass", tint: .blue, size: 30)
+                .fixedSize()
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: "%.1f kg", r.lockedWeight))
+                    .font(.subheadline.weight(.semibold))
 
                 Text(sessionName(r.sessionID))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            Spacer()
+
+            Text(r.recordedAt, style: .date)
+                .font(.subheadline)
         }
         .padding(.vertical, 10)
     }
@@ -870,8 +935,11 @@ struct IndividualAnimalView: View {
     private var treatmentHistoryGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                cardHeader(
+                sectionHistoryHeader(
                     title: "Treatment History",
+                    subtitle: "Treatments and dosage notes",
+                    icon: "cross.case.fill",
+                    tint: .green,
                     count: treatmentHistory.count,
                     expandTitle: showAllTreatments ? "Collapse" : "Show all"
                 ) {
@@ -883,9 +951,7 @@ struct IndividualAnimalView: View {
                 Divider().opacity(0.10)
 
                 if treatmentHistory.isEmpty {
-                    Text("No treatments yet for this animal.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    emptySectionText("No treatments yet for this animal.")
                 } else if showAllTreatments {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -917,6 +983,9 @@ struct IndividualAnimalView: View {
 
     private func treatmentRow(_ row: TreatmentHistoryRow) -> some View {
         HStack(spacing: 12) {
+            sectionIcon(icon: "cross.case.fill", tint: .green, size: 30)
+                .fixedSize()
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .font(.subheadline.weight(.semibold))
@@ -947,8 +1016,11 @@ struct IndividualAnimalView: View {
     private var pregHistoryGlass: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                cardHeader(
+                sectionHistoryHeader(
                     title: "Preg Test History",
+                    subtitle: "Pregnancy results",
+                    icon: "stethoscope",
+                    tint: .purple,
                     count: pregHistory.count,
                     expandTitle: showAllPregTests ? "Collapse" : "Show all"
                 ) {
@@ -960,9 +1032,7 @@ struct IndividualAnimalView: View {
                 Divider().opacity(0.10)
 
                 if pregHistory.isEmpty {
-                    Text("No preg test entries yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    emptySectionText("No preg test entries yet.")
                 } else if showAllPregTests {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -994,6 +1064,9 @@ struct IndividualAnimalView: View {
 
     private func pregRow(_ row: PregHistoryRow) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            sectionIcon(icon: "stethoscope", tint: .purple, size: 30)
+                .fixedSize()
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.summary)
                     .font(.subheadline.weight(.semibold))
@@ -1174,6 +1247,11 @@ struct IndividualAnimalView: View {
         return t
     }
 
+    private func normalizeSnapshotValue(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "—" : trimmed
+    }
+
     // =====================================================
     // MARK: - Helpers
     // =====================================================
@@ -1263,6 +1341,134 @@ struct IndividualAnimalView: View {
 
     private enum PillTone { case good, warn, muted }
 
+    private func sectionIcon(icon: String, tint: Color, size: CGFloat = 28) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(scheme == .dark ? 0.18 : 0.12))
+
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(tint.opacity(scheme == .dark ? 0.20 : 0.10), lineWidth: 1)
+
+            Image(systemName: icon)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: size, height: size)
+        .fixedSize()
+    }
+
+    private func sectionTitle<Trailing: View>(
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            sectionIcon(icon: icon, tint: tint)
+                .fixedSize()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailing()
+                .fixedSize()
+        }
+    }
+
+    private func sectionTitle(
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            sectionIcon(icon: icon, tint: tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func sectionHistoryHeader(
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color,
+        count: Int,
+        expandTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        sectionTitle(
+            title: title,
+            subtitle: subtitle,
+            icon: icon,
+            tint: tint
+        ) {
+            HStack(spacing: 8) {
+                labelChip("\(count)")
+                if count > 5 {
+                    Button(expandTitle, action: action)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+    }
+
+    private func labelChip(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+    }
+
+    private func detailPill(_ text: String, tint: Color, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption.weight(.semibold))
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(tint.opacity(scheme == .dark ? 0.18 : 0.12))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(tint.opacity(scheme == .dark ? 0.38 : 0.22), lineWidth: 1)
+        )
+    }
+
+    private func emptySectionText(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+    }
+
     private func statusChip(_ text: String, tone: PillTone, icon: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
@@ -1341,37 +1547,6 @@ struct IndividualAnimalView: View {
         )
     }
 
-    private func glassValueField(title: String, value: String, icon: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(glassFieldFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(glassFieldStroke, lineWidth: 1)
-        )
-    }
-
     private func glassMenuPicker<Content: View>(
         title: String,
         value: String,
@@ -1393,13 +1568,14 @@ struct IndividualAnimalView: View {
                     Text(value)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
                 }
+
+                Spacer(minLength: 0)
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1413,32 +1589,6 @@ struct IndividualAnimalView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func cardHeader(
-        title: String,
-        count: Int,
-        expandTitle: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack {
-            Text(title)
-                .font(.headline)
-
-            Spacer()
-
-            if count > 0 {
-                Text("\(count)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            if count > 5 {
-                Button(expandTitle, action: action)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.blue)
-            }
-        }
     }
 
     private struct TreatmentHistoryRow: Identifiable {

@@ -4,7 +4,6 @@ struct AnimalDataView: View {
 
     @EnvironmentObject private var store: LocalDataStore
     @EnvironmentObject private var coordinator: ActiveSessionCoordinator
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var colorScheme
 
     @StateObject private var vm = AnimalDataViewModel()
@@ -12,10 +11,9 @@ struct AnimalDataView: View {
 
     @State private var showSearchField: Bool = false
     @State private var showSortSheet: Bool = false
+    @State private var showFilterSheet: Bool = false
     @State private var isSelecting: Bool = false
     @State private var showDeleteConfirmation: Bool = false
-
-    private var isWideLayout: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
         ZStack {
@@ -24,36 +22,44 @@ struct AnimalDataView: View {
         }
         .navigationTitle("Animal Data")
         .navigationBarTitleDisplayMode(.inline)
-
         .onAppear {
             if !didBindStore {
                 vm.bind(store: store)
                 didBindStore = true
             }
         }
-
-        .onChange(of: vm.searchText) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: vm.selectedFarmID) { _, _ in
-            vm.reconcileFiltersAfterFarmOrMobChange()
+        .onChange(of: vm.selectedFarmIDs) { _, _ in
             vm.recomputeDerivedData()
         }
-        .onChange(of: vm.filterMobName) { _, _ in
-            vm.reconcileClassFilterIfNeeded()
+        .onChange(of: vm.selectedMobNames) { _, _ in
             vm.recomputeDerivedData()
         }
-        .onChange(of: vm.filterClass) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: vm.sortKey) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: vm.sortAscending) { _, _ in vm.recomputeDerivedData() }
-
-        .onChange(of: store.farms) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: store.mobs) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: store.animals) { _, _ in vm.recomputeDerivedData() }
-        .onChange(of: store.animalEvents) { _, _ in vm.recomputeDerivedData() }
-
-        // 🚀 kill list animations (BIG WIN)
+        .onChange(of: vm.selectedClasses) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: vm.selectedSexes) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: vm.sortKey) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: vm.sortAscending) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: store.farms) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: store.mobs) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: store.animals) { _, _ in
+            vm.recomputeDerivedData()
+        }
+        .onChange(of: store.animalEvents) { _, _ in
+            vm.recomputeDerivedData()
+        }
         .animation(nil, value: vm.derived.rankedRows)
         .animation(nil, value: vm.selectedAnimalIDs)
-
         .alert(deleteConfirmationTitle, isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 deleteSelectedAnimals()
@@ -62,14 +68,17 @@ struct AnimalDataView: View {
         } message: {
             Text(deleteConfirmationMessage)
         }
-
         .sheet(isPresented: $coordinator.showIndividualAnimalView) {
             IndividualAnimalView()
                 .environmentObject(store)
                 .environmentObject(coordinator)
         }
-
-        .confirmationDialog("Sort Animals", isPresented: $showSortSheet) {
+        .sheet(isPresented: $showFilterSheet) {
+            filterSheet
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .confirmationDialog("Sort Animals", isPresented: $showSortSheet, titleVisibility: .visible) {
             ForEach(AnimalDataViewModel.SortKey.allCases) { key in
                 Button(vm.sortKey == key ? "✓ \(key.rawValue)" : key.rawValue) {
                     vm.sortKey = key
@@ -91,56 +100,62 @@ struct AnimalDataView: View {
     }
 }
 
-// MARK: - LIST
+// MARK: - List
 
 private extension AnimalDataView {
 
     func animalListView() -> some View {
         List {
-
             Section {
                 headerCard
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
             }
 
             if isSelecting {
                 Section {
                     bulkActionsCard
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
                 }
             }
 
-            Section(resultsTitle) {
-
+            Section {
                 if vm.derived.rankedRows.isEmpty {
-                    Text("No animals match your filters.")
-                        .foregroundStyle(.secondary)
+                    emptyStateCard
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                } else {
+                    ForEach(vm.derived.rankedRows, id: \.id) { row in
+                        Button {
+                            if isSelecting {
+                                vm.toggleSelection(row.id)
+                            } else {
+                                coordinator.selectedIndividualAnimalEID = row.animal.eidRaw
+                                coordinator.selectedIndividualAnimalFarmID = row.animal.farmID
+                                coordinator.focusedEID = row.animal.eidRaw
+                                coordinator.showIndividualAnimalView = true
+                            }
+                        } label: {
+                            AnimalDataRowCard(
+                                row: row,
+                                isSelected: isSelecting && vm.selectedAnimalIDs.contains(row.id),
+                                isSelectionMode: isSelecting
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 10, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    }
                 }
-
-                // 🚀 stable identity (IMPORTANT)
-                ForEach(vm.derived.rankedRows, id: \.id) { row in
-
-                    if isSelecting {
-                        Button {
-                            toggleSelection(for: row.id)
-                        } label: {
-                            AnimalRowView(
-                                row: row,
-                                isSelected: vm.selectedAnimalIDs.contains(row.id)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button {
-                            coordinator.selectedIndividualAnimalEID = row.animal.eidRaw
-                            coordinator.selectedIndividualAnimalFarmID = row.animal.farmID
-                            coordinator.focusedEID = row.animal.eidRaw
-                            coordinator.showIndividualAnimalView = true
-                        } label: {
-                            AnimalRowView(
-                                row: row,
-                                isSelected: false
-                            )
-                        }
-                        .buttonStyle(.plain)
+            } header: {
+                HStack {
+                    Text(resultsTitle)
+                    Spacer()
+                    if vm.derived.visibleCount < vm.derived.totalMatchingCount {
+                        Text("\(vm.derived.visibleCount) shown")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -148,63 +163,387 @@ private extension AnimalDataView {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
     }
+
+    var emptyStateCard: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.systemGray5))   // ✅ fixed
+
+                Image(systemName: "hare")
+                    .foregroundColor(.primary)
+            }
+            .frame(width: 40, height: 40)
+
+            Text("No animals match your filters")
+                .font(.headline)
+
+            Text("Try clearing search or adjusting filters.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(cardBackground)
+        .overlay(cardStroke)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
 }
 
-// MARK: - HEADER
+// MARK: - Header
 
 private extension AnimalDataView {
 
     var headerCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.orange.opacity(0.16))
+                        .frame(width: 52, height: 52)
 
-            Text("Animal Data")
-                .font(.headline)
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.orange)
+                }
 
-            Text("\(vm.derived.totalMatchingCount) matching animals")
-                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Animal Data")
+                        .font(.headline)
 
-            HStack {
-                Button(showSearchField ? "Hide Search" : "Search") {
+                    Text("\(vm.derived.totalMatchingCount) matching animals")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor)
+                        .clipShape(Capsule())
+                }
+            }
+
+            statsRow
+            topControlsRow
+
+            if showSearchField {
+                searchField
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            if activeFilterCount > 0 {
+                activeSummaryRow
+            }
+        }
+        .padding(16)
+        .background(cardBackground)
+        .overlay(cardStroke)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    var statsRow: some View {
+        HStack(spacing: 10) {
+            statPill(
+                icon: "list.bullet.rectangle.portrait",
+                tint: .blue,
+                title: "Shown",
+                value: "\(vm.derived.visibleCount)"
+            )
+
+            statPill(
+                icon: "line.3.horizontal.decrease.circle.fill",
+                tint: .purple,
+                title: "Filtered",
+                value: "\(activeFilterCount)"
+            )
+
+            statPill(
+                icon: "checkmark.circle.fill",
+                tint: .green,
+                title: "Selected",
+                value: "\(vm.selectedCountInFiltered)"
+            )
+        }
+    }
+
+    func statPill(icon: String, tint: Color, title: String, value: String) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(tint.opacity(0.14))
+                    .frame(width: 32, height: 32)
+
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(softFill)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    var topControlsRow: some View {
+        HStack(spacing: 10) {
+            controlButton(
+                title: showSearchField ? "Hide Search" : "Search",
+                icon: showSearchField ? "xmark" : "magnifyingglass"
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
                     showSearchField.toggle()
                     if !showSearchField {
-                        vm.searchText = ""
+                        vm.updateSearchText("")
                     }
                 }
+            }
 
-                Button("Sort") {
-                    showSortSheet = true
-                }
+            controlButton(
+                title: "Filter",
+                icon: "line.3.horizontal.decrease.circle"
+            ) {
+                showFilterSheet = true
+            }
 
-                Button(isSelecting ? "Done" : "Select") {
+            controlButton(
+                title: "Sort",
+                icon: "arrow.up.arrow.down"
+            ) {
+                showSortSheet = true
+            }
+
+            controlButton(
+                title: isSelecting ? "Done" : "Select",
+                icon: isSelecting ? "checkmark.circle.fill" : "checkmark.circle",
+                isProminent: isSelecting
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
                     if isSelecting {
                         vm.selectedAnimalIDs.removeAll()
                     }
                     isSelecting.toggle()
                 }
             }
+        }
+    }
 
-            if showSearchField {
-                TextField(
-                    "Search",
-                    text: Binding(
-                        get: { vm.searchText },
-                        set: { vm.updateSearchText($0) }
-                    )
+    func controlButton(
+        title: String,
+        icon: String,
+        isProminent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isProminent ? Color.white : Color.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity)
+            .background(isProminent ? Color.accentColor : softFill)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField(
+                "Search EID, mob, class, farm",
+                text: Binding(
+                    get: { vm.searchText },
+                    set: { vm.updateSearchText($0) }
                 )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+
+            if !vm.searchText.isEmpty {
+                Button {
+                    vm.updateSearchText("")
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(softFill)
+        .clipShape(Capsule())
+    }
+
+    var activeSummaryRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Active Filters")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .center, spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if !vm.selectedFarmIDs.isEmpty {
+                            activeMiniPill(text: "\(vm.selectedFarmIDs.count) farm\(vm.selectedFarmIDs.count == 1 ? "" : "s")")
+                        }
+                        if !vm.selectedSexes.isEmpty {
+                            activeMiniPill(text: "\(vm.selectedSexes.count) sex\(vm.selectedSexes.count == 1 ? "" : "es")")
+                        }
+                        if !vm.selectedMobNames.isEmpty {
+                            activeMiniPill(text: "\(vm.selectedMobNames.count) mob\(vm.selectedMobNames.count == 1 ? "" : "s")")
+                        }
+                        if !vm.selectedClasses.isEmpty {
+                            activeMiniPill(text: "\(vm.selectedClasses.count) class\(vm.selectedClasses.count == 1 ? "" : "es")")
+                        }
+                        if !vm.searchText.isEmpty {
+                            activeMiniPill(text: "Search")
+                        }
+                        if vm.sortKey != .updatedAt || vm.sortAscending {
+                            activeMiniPill(text: sortSummaryText)
+                        }
+                    }
+                }
+
+                Button("Clear") {
+                    clearFilters()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.blue)
+                .buttonStyle(.plain)
             }
         }
     }
+
+    func activeMiniPill(text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(softFill)
+            .clipShape(Capsule())
+    }
 }
 
-// MARK: - BULK
+// MARK: - Filter Sheet
+
+private extension AnimalDataView {
+
+    var filterSheet: some View {
+        NavigationStack {
+            List {
+                Section("Farm") {
+                    ForEach(store.farms) { farm in
+                        multiSelectRow(
+                            title: farm.name,
+                            isSelected: vm.selectedFarmIDs.contains(farm.id)
+                        ) {
+                            vm.toggleFarm(farm.id)
+                        }
+                    }
+                }
+                Section("Sex") {
+                    ForEach(sexOptions, id: \.self) { sex in
+                        multiSelectRow(
+                            title: sex,
+                            isSelected: vm.selectedSexes.contains(sex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                        ) {
+                            vm.toggleSex(sex)
+                        }
+                    }
+                }
+                Section("Mob") {
+                    ForEach(mobOptions, id: \.self) { mob in
+                        multiSelectRow(
+                            title: mob,
+                            isSelected: vm.selectedMobNames.contains(mob.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                        ) {
+                            vm.toggleMob(mob)
+                        }
+                    }
+                }
+
+                Section("Class") {
+                    ForEach(classOptions, id: \.self) { klass in
+                        multiSelectRow(
+                            title: klass,
+                            isSelected: vm.selectedClasses.contains(klass.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                        ) {
+                            vm.toggleClass(klass)
+                        }
+                    }
+                }
+
+                if activeFilterCount > 0 {
+                    Section {
+                        Button("Clear All Filters", role: .destructive) {
+                            clearFilters()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filter Animals")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        showFilterSheet = false
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    func multiSelectRow(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+
+                Text(title)
+                    .foregroundStyle(Color.primary)
+
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Bulk
 
 private extension AnimalDataView {
 
     var bulkActionsCard: some View {
-        VStack {
-
+        VStack(spacing: 12) {
             Button {
                 if vm.allFilteredSelected {
                     vm.clearFilteredSelection()
@@ -212,29 +551,324 @@ private extension AnimalDataView {
                     vm.selectAllFiltered()
                 }
             } label: {
-                Text(vm.allFilteredSelected ? "Clear All" : "Select All")
+                HStack(spacing: 12) {
+                    Image(systemName: vm.allFilteredSelected ? "checkmark.circle.fill" : "checkmark.circle")
+                        .foregroundStyle(.blue)
+                        .frame(width: 22)
+
+                    Text(vm.allFilteredSelected ? "Clear All Filtered" : "Select All Filtered")
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+
+                    Text("\(vm.derived.totalMatchingCount)")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .padding(.vertical, 4)
             }
+            .buttonStyle(.plain)
+            .disabled(vm.derived.filteredIDs.isEmpty)
+
+            Divider()
 
             Button(role: .destructive) {
                 showDeleteConfirmation = true
             } label: {
-                Text("Delete Selected (\(vm.selectedCountInFiltered))")
+                HStack(spacing: 12) {
+                    Image(systemName: "trash")
+                        .frame(width: 22)
+
+                    Text("Delete Selected")
+
+                    Spacer()
+
+                    Text("\(vm.selectedCountInFiltered)")
+                }
+                .font(.subheadline)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.selectedCountInFiltered == 0)
+
+            if vm.selectedCountInFiltered > 0 {
+                HStack {
+                    Text("\(vm.selectedCountInFiltered) selected from \(vm.derived.totalMatchingCount) filtered animals.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
             }
         }
+        .padding(14)
+        .background(cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.10 : 0.22))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
+// MARK: - Row Card
 
-// MARK: - ACTIONS
+private struct AnimalDataRowCard: View, Equatable {
+    let row: AnimalDataViewModel.AnimalRowModel
+    let isSelected: Bool
+    let isSelectionMode: Bool
 
-private extension AnimalDataView {
-
-    func toggleSelection(for id: UUID) {
-        vm.toggleSelection(id)
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row &&
+        lhs.isSelected == rhs.isSelected &&
+        lhs.isSelectionMode == rhs.isSelectionMode
     }
 
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if isSelectionMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? .blue : .secondary)
+                    .padding(.top, 2)
+            }
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 50, height: 50)
+
+                Text("🐑")
+                    .font(.system(size: 22))
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(row.animal.eidRaw)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .foregroundStyle(eidTextColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(eidPillFill)
+                        .clipShape(Capsule())
+
+                    Spacer(minLength: 8)
+
+                    Text(row.farmName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(alignment: .center, spacing: 8) {
+                    HStack(spacing: 8) {
+                        rowPill(row.sexName)
+                        rowPill(row.mobName)
+                        rowPill(row.className)
+                        rowPill(row.yearText)
+                        rowPill(row.totalLambsText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    rowMetaPill(row.lastScanText, icon: "clock.fill")
+                }
+
+                if let pregValue = row.pregValue {
+                    HStack(spacing: 8) {
+                        rowMetaPill("Preg \(pregValue)", icon: "number.circle.fill")
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.001))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    isSelected ? Color.accentColor.opacity(0.9) : Color.white.opacity(0.18),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var eidPillFill: Color {
+        guard let color = colorFromHex(row.mobColorHex) else {
+            return Color.primary.opacity(0.08)
+        }
+        return color
+    }
+
+    private var eidTextColor: Color {
+        guard let color = colorFromHex(row.mobColorHex) else {
+            return .primary
+        }
+        return idealTextColor(for: color)
+    }
+
+    @ViewBuilder
+    private func rowPill(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.08))
+            .clipShape(Capsule())
+    }
+
+    @ViewBuilder
+    private func rowMetaPill(_ text: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.06))
+        .clipShape(Capsule())
+    }
+
+    private func colorFromHex(_ hex: String?) -> Color? {
+        guard var cleaned = hex?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cleaned.isEmpty else { return nil }
+
+        cleaned = cleaned.replacingOccurrences(of: "#", with: "")
+
+        guard cleaned.count == 6 || cleaned.count == 8,
+              let value = UInt64(cleaned, radix: 16) else {
+            return nil
+        }
+
+        let r, g, b, a: Double
+
+        if cleaned.count == 8 {
+            a = Double((value & 0xFF000000) >> 24) / 255.0
+            r = Double((value & 0x00FF0000) >> 16) / 255.0
+            g = Double((value & 0x0000FF00) >> 8) / 255.0
+            b = Double(value & 0x000000FF) / 255.0
+        } else {
+            a = 1.0
+            r = Double((value & 0xFF0000) >> 16) / 255.0
+            g = Double((value & 0x00FF00) >> 8) / 255.0
+            b = Double(value & 0x0000FF) / 255.0
+        }
+
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+
+    private func idealTextColor(for color: Color) -> Color {
+        #if canImport(UIKit)
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return .white
+        }
+
+        let luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+        return luminance > 0.7 ? .black : .white
+        #else
+        return .white
+        #endif
+    }
+}
+
+// MARK: - Styling + Actions
+
+private extension AnimalDataView {
+    
+    var sexOptions: [String] {
+        Array(
+            Set(
+                store.animals.compactMap { animal in
+                    let raw = animal.sex?.rawValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return raw.isEmpty ? nil : raw
+                }
+            )
+        )
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+    var mobOptions: [String] {
+        Array(
+            Set(
+                store.mobs.map { mob in
+                    mob.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                .filter { !$0.isEmpty }
+            )
+        )
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var classOptions: [String] {
+        Array(
+            Set(
+                store.animals.compactMap { animal in
+                    let raw = animal.klass?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return raw.isEmpty ? nil : raw
+                }
+            )
+        )
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var activeFilterCount: Int {
+        var count = 0
+        if !vm.selectedFarmIDs.isEmpty { count += 1 }
+        if !vm.selectedSexes.isEmpty { count += 1 }
+        if !vm.selectedMobNames.isEmpty { count += 1 }
+        if !vm.selectedClasses.isEmpty { count += 1 }
+        if !vm.searchText.isEmpty { count += 1 }
+        if vm.sortKey != .updatedAt || vm.sortAscending { count += 1 }
+        return count
+    }
     var resultsTitle: String {
-        "Animals (\(vm.derived.totalMatchingCount))"
+        if vm.derived.totalMatchingCount > vm.derived.visibleCount {
+            return "Animals (\(vm.derived.visibleCount) of \(vm.derived.totalMatchingCount))"
+        }
+        return "Animals (\(vm.derived.totalMatchingCount))"
+    }
+
+    var sortSummaryText: String {
+        "\(vm.sortKey.rawValue) · \(vm.sortAscending ? "Ascending" : "Descending")"
+    }
+
+    var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(Color.white.opacity(0.001))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    var cardStroke: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .strokeBorder(.white.opacity(colorScheme == .dark ? 0.10 : 0.22))
+    }
+
+    var softFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045)
+    }
+
+    func clearFilters() {
+        vm.clearAllFilters()
+        vm.updateSearchText("")
+        vm.sortKey = .updatedAt
+        vm.sortAscending = false
+        showSearchField = false
     }
 
     var deleteConfirmationTitle: String {

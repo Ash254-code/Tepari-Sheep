@@ -52,27 +52,31 @@ struct SessionLandingCardView: View {
                     Button(action: onStartNew) {
                         Label("Start New Session", systemImage: "plus")
                             .font(.headline)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, buttonVerticalPadding)
-                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .background(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .fill(Color.gray.opacity(0.95))
+                            )
                     }
+                    .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                     if let onContinueRecent {
                         Button(action: onContinueRecent) {
                             Label("Resume Last Session", systemImage: "arrow.clockwise")
                                 .font(.headline)
+                                .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, buttonVerticalPadding)
-                                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                        .fill(Color.gray.opacity(0.65))
+                                )
                         }
+                        .buttonStyle(.plain)
                         .frame(maxWidth: .infinity)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue.opacity(0.35))
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     }
                 }
                 .padding(.horizontal, 10)
