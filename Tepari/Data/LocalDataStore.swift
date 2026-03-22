@@ -47,7 +47,8 @@ struct LocalDataStoreSnapshot: Codable {
 
     // Per-session draft setup
     var sessionDraftSetup: [UUID: SessionDraftSetup]?
-
+    
+    
     init(
         schemaVersion: Int = 1,
         sessions: [Session] = [],
@@ -166,19 +167,24 @@ final class LocalDataStore: ObservableObject {
             animals[idx].updatedAt = Date()
         }
     }
-    
+    func totalLambsCached(farmID: UUID, eidRaw: String) -> Int {
+        totalLambsByAnimalIndex[animalIndexKey(farmID: farmID, eidRaw: eidRaw)] ?? 0
+    }
     func totalLambsForAnimal(farmID: UUID?, eidRaw: String) -> Int {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return 0 }
 
-        return animalEvents.reduce(0) { total, event in
-            guard event.kind == .lambing else { return total }
-            guard EIDValidator.cleanedRaw(event.eidRaw) == eid else { return total }
-            if let farmID, event.farmID != farmID { return total }
-
-            let born = Int(event.json?["born"] ?? "") ?? 0
-            return total + born
+        if let farmID {
+            return totalLambsByAnimalIndex[animalIndexKey(farmID: farmID, eidRaw: eid)] ?? 0
         }
+
+        var total = 0
+        for animal in animals {
+            let cleaned = EIDValidator.cleanedRaw(animal.eidRaw)
+            guard cleaned == eid else { continue }
+            total += totalLambsByAnimalIndex[animalIndexKey(farmID: animal.farmID, eidRaw: eid)] ?? 0
+        }
+        return total
     }
 
     // =========================================================
@@ -1024,21 +1030,18 @@ final class LocalDataStore: ObservableObject {
         let eid = EIDValidator.cleanedRaw(eidRaw)
         guard !eid.isEmpty, eid != "—" else { return nil }
 
-        var comps = DateComponents()
-        comps.year = year
-        comps.month = 1
-        comps.day = 1
-        let anchor = Calendar.current.date(from: comps)
+        if let farmID {
+            return lambCountByAnimalYearIndex["\(animalIndexKey(farmID: farmID, eidRaw: eid))|\(year)"]
+        }
 
-        let ev = animalEvents.first(where: { e in
-            e.kind == .lambing &&
-            e.eidRaw == eid &&
-            (farmID == nil || e.farmID == farmID!) &&
-            (anchor == nil || e.date == anchor!) &&
-            e.int1 == year
-        })
+        for animal in animals {
+            let cleaned = EIDValidator.cleanedRaw(animal.eidRaw)
+            guard cleaned == eid else { continue }
+            if let value = lambCountByAnimalYearIndex["\(animalIndexKey(farmID: animal.farmID, eidRaw: eid))|\(year)"] {
+                return value
+            }
+        }
 
-        if let s = ev?.json?["born"], let n = Int(s) { return n }
         return nil
     }
 
@@ -2086,6 +2089,21 @@ final class LocalDataStore: ObservableObject {
     private var latestWeightEventIndex: [String: AnimalEvent] = [:]
     private var latestPregnancyEventIndex: [String: AnimalEvent] = [:]
 
+    // =========================================================
+    // MARK: - Fast lookup indexes (Phase 1 performance)
+    // =========================================================
+
+    private var farmByIDIndex: [UUID: Farm] = [:]
+    private var farmIDByPICIndex: [String: UUID] = [:]
+    private var farmIDByNameIndex: [String: UUID] = [:]
+
+    private var mobByIDIndex: [UUID: Mob] = [:]
+    private var mobsByFarmIDIndex: [UUID: [Mob]] = [:]
+    private var mobIDByFarmAndNameIndex: [String: UUID] = [:]
+
+    private var totalLambsByAnimalIndex: [String: Int] = [:]
+    private var lambingEventsByAnimalIndex: [String: [AnimalEvent]] = [:]
+    private var lambCountByAnimalYearIndex: [String: Int] = [:]
     private func animalIndexKey(farmID: UUID, eidRaw: String) -> String {
         "\(farmID.uuidString)|\(EIDValidator.cleanedRaw(eidRaw))"
     }
@@ -2101,6 +2119,62 @@ final class LocalDataStore: ObservableObject {
         latestWeightEventIndex = [:]
         latestPregnancyEventIndex = [:]
 
+        farmByIDIndex = [:]
+        farmIDByPICIndex = [:]
+        farmIDByNameIndex = [:]
+
+        mobByIDIndex = [:]
+        mobsByFarmIDIndex = [:]
+        mobIDByFarmAndNameIndex = [:]
+
+        totalLambsByAnimalIndex = [:]
+        lambingEventsByAnimalIndex = [:]
+        lambCountByAnimalYearIndex = [:]
+
+        // -----------------------------------------------------
+        // Farms
+        // -----------------------------------------------------
+        for farm in farms {
+            farmByIDIndex[farm.id] = farm
+
+            let cleanPIC = farm.pic
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if !cleanPIC.isEmpty {
+                farmIDByPICIndex[cleanPIC] = farm.id
+            }
+
+            let cleanName = farm.name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if !cleanName.isEmpty {
+                farmIDByNameIndex[cleanName] = farm.id
+            }
+        }
+
+        // -----------------------------------------------------
+        // Mobs
+        // -----------------------------------------------------
+        for mob in mobs {
+            mobByIDIndex[mob.id] = mob
+            mobsByFarmIDIndex[mob.farmID, default: []].append(mob)
+
+            let key = "\(mob.farmID.uuidString)|\(mob.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+            if !mob.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                mobIDByFarmAndNameIndex[key] = mob.id
+            }
+        }
+
+        // Keep farm mobs in a stable order
+        for key in mobsByFarmIDIndex.keys {
+            mobsByFarmIDIndex[key]?.sort {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        }
+
+        // -----------------------------------------------------
+        // Animals
+        // -----------------------------------------------------
         for animal in animals {
             let eid = EIDValidator.cleanedRaw(animal.eidRaw)
             guard !eid.isEmpty, eid != "—" else { continue }
@@ -2114,6 +2188,9 @@ final class LocalDataStore: ObservableObject {
             animalSearchIndex.append((eidRaw: eid, profile: animal))
         }
 
+        // -----------------------------------------------------
+        // Records
+        // -----------------------------------------------------
         for record in records {
             let eid = EIDValidator.cleanedRaw(record.eidRaw)
             guard !eid.isEmpty, eid != "—" else { continue }
@@ -2144,6 +2221,9 @@ final class LocalDataStore: ObservableObject {
             }
         }
 
+        // -----------------------------------------------------
+        // Animal events
+        // -----------------------------------------------------
         for event in animalEvents {
             let eid = EIDValidator.cleanedRaw(event.eidRaw)
             guard !eid.isEmpty, eid != "—" else { continue }
@@ -2160,12 +2240,33 @@ final class LocalDataStore: ObservableObject {
                 updateLatestEventIndex(&latestPregnancyEventIndex, key: anyFarmKey, event: event)
                 updateLatestEventIndex(&latestPregnancyEventIndex, key: farmSpecificKey, event: event)
 
+            case .lambing:
+                let animalKey = farmSpecificKey
+                let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
+
+                let born: Int = {
+                    if let n = event.int1, event.json?["born"] == nil { return n }
+                    if let s = event.json?["born"], let n = Int(s) { return n }
+                    return 0
+                }()
+
+                totalLambsByAnimalIndex[animalKey, default: 0] += born
+                lambingEventsByAnimalIndex[animalKey, default: []].append(event)
+                lambCountByAnimalYearIndex["\(animalKey)|\(year)"] = born
+
             default:
                 break
             }
         }
-    }
 
+        for key in lambingEventsByAnimalIndex.keys {
+            lambingEventsByAnimalIndex[key]?.sort { lhs, rhs in
+                let lhsYear = lhs.int1 ?? Calendar.current.component(.year, from: lhs.date)
+                let rhsYear = rhs.int1 ?? Calendar.current.component(.year, from: rhs.date)
+                return lhsYear > rhsYear
+            }
+        }
+    }
     // =========================================================
     // MARK: - Sale archive
     // =========================================================
@@ -2937,7 +3038,7 @@ final class LocalDataStore: ObservableObject {
     }
 
     func mobs(for farmID: UUID) -> [Mob] {
-        mobs.filter { $0.farmID == farmID }
+        mobsByFarmIDIndex[farmID] ?? []
     }
 
     // =========================================================
@@ -3167,10 +3268,9 @@ final class LocalDataStore: ObservableObject {
             return existing?.mobID
         }
 
-        if let m = mobs.first(where: {
-            $0.farmID == farmID && $0.name.caseInsensitiveCompare(mobName) == .orderedSame
-        }) {
-            return m.id
+        let mobLookupKey = "\(farmID.uuidString)|\(mobName.lowercased())"
+        if let mobID = mobIDByFarmAndNameIndex[mobLookupKey] {
+            return mobID
         }
 
         let created = addMob(farmID: farmID, name: mobName, colorHex: defaultImportedMobColorHex)
@@ -3190,7 +3290,7 @@ final class LocalDataStore: ObservableObject {
         }()
 
         guard let mobID = profile?.mobID else { return nil }
-        return mobs.first(where: { $0.id == mobID })
+        return mobByIDIndex[mobID]
     }
 
     func mobColorHexForEID(_ eidRaw: String, farmID: UUID? = nil) -> String? {
@@ -3216,19 +3316,9 @@ final class LocalDataStore: ObservableObject {
     }
     
     func lambingEventsForAnimal(farmID: UUID, eidRaw: String) -> [AnimalEvent] {
-        let eid = normalizedImportEID(eidRaw)
-
-        return animalEvents
-            .filter { event in
-                event.kind == .lambing &&
-                event.farmID == farmID &&
-                normalizedImportEID(event.eidRaw) == eid
-            }
-            .sorted { lhs, rhs in
-                let lhsYear = lhs.int1 ?? Calendar.current.component(.year, from: lhs.date)
-                let rhsYear = rhs.int1 ?? Calendar.current.component(.year, from: rhs.date)
-                return lhsYear > rhsYear
-            }
+        let eid = EIDValidator.cleanedRaw(eidRaw)
+        guard !eid.isEmpty, eid != "—" else { return [] }
+        return lambingEventsByAnimalIndex[animalIndexKey(farmID: farmID, eidRaw: eid)] ?? []
     }
 
     @discardableResult
@@ -3414,26 +3504,17 @@ final class LocalDataStore: ObservableObject {
         }
     }
     private func resolveFarmIDForImport(pic: String?, farmName: String?) -> UUID? {
-
         if let pic {
-            let cleanPIC = pic.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleanPIC.isEmpty,
-               let match = farms.first(where: {
-                   $0.pic.trimmingCharacters(in: .whitespacesAndNewlines)
-                       .caseInsensitiveCompare(cleanPIC) == .orderedSame
-               }) {
-                return match.id
+            let cleanPIC = pic.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !cleanPIC.isEmpty, let id = farmIDByPICIndex[cleanPIC] {
+                return id
             }
         }
 
         if let farmName {
-            let cleanFarm = farmName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleanFarm.isEmpty,
-               let match = farms.first(where: {
-                   $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                       .caseInsensitiveCompare(cleanFarm) == .orderedSame
-               }) {
-                return match.id
+            let cleanFarm = farmName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !cleanFarm.isEmpty, let id = farmIDByNameIndex[cleanFarm] {
+                return id
             }
         }
 

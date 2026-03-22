@@ -72,7 +72,7 @@ struct AnimalEditorView: View {
                     Text("No lamb records yet.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(lambingHistory, id: \.id) { item in
+                    ForEach(lambingHistory) { item in
                         HStack {
                             Text("\(item.year)")
                             Spacer()
@@ -132,21 +132,21 @@ private extension AnimalEditorView {
     }
 
     var lambingHistory: [LambingHistoryRow] {
-        store.animalEvents
-            .filter { event in
-                event.kind == .lambing &&
-                event.farmID == farmID &&
-                normalizedEID(event.eidRaw) == normalizedEID(original.eidRaw)
-            }
+        store.lambingEventsForAnimal(farmID: farmID, eidRaw: original.eidRaw)
             .compactMap { event in
                 let year = event.int1 ?? Calendar.current.component(.year, from: event.date)
 
-                guard
-                    let bornString = event.json?["born"],
-                    let born = Int(bornString)
-                else {
+                let born: Int? = {
+                    if let bornString = event.json?["born"], let born = Int(bornString) {
+                        return born
+                    }
+                    if let fallback = event.int1, event.json?["born"] == nil {
+                        return fallback
+                    }
                     return nil
-                }
+                }()
+
+                guard let born else { return nil }
 
                 return LambingHistoryRow(
                     id: event.id,
@@ -155,12 +155,6 @@ private extension AnimalEditorView {
                 )
             }
             .sorted { $0.year > $1.year }
-    }
-
-    func normalizedEID(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: " ", with: "")
     }
 }
 
